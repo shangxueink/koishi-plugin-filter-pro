@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-filter-pro",
   "description": "Ruleset middleware plugin for Koishi",
-  "version": "2.3.17",
+  "version": "1.0.0",
   "main": "lib/index.cjs",
   "module": "lib/index.mjs",
   "types": "lib/index.d.ts",
