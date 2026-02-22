@@ -125,7 +125,7 @@ const fieldOptions = [
   { value: 'platform', label: '平台（platform）' },
   { value: 'content', label: '消息内容（content）' },
   { value: 'isDirect', label: '私聊（isDirect）' },
-  { value: 'subtype', label: '消息子类型（subtype）' }
+  { value: 'type', label: '消息类型（type）' }
 ]
 
 const fieldSelectOptions = [

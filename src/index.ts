@@ -329,22 +329,36 @@ function coerceNumber(value: unknown): number | null {
   return null
 }
 
+function normalizeScalar(value: unknown): unknown {
+  if (value == null) return value
+  if (typeof value === 'object') return value
+  return String(value)
+}
+
 function evaluateCompare(left: unknown, expr: CompareExpr): boolean {
   if (expr.operator === 'exists') {
     return left !== undefined && left !== null
   }
   const right = expr.value
-  if (expr.operator === 'eq') return left === right
-  if (expr.operator === 'ne') return left !== right
+  const leftNorm = normalizeScalar(left)
+  const rightNorm = normalizeScalar(right)
+  if (expr.operator === 'eq') {
+    return leftNorm === rightNorm
+  }
+  if (expr.operator === 'ne') {
+    return leftNorm !== rightNorm
+  }
   if (expr.operator === 'includes') {
-    if (typeof left === 'string') return left.includes(String(right ?? ''))
-    if (Array.isArray(left)) return left.includes(right)
+    if (typeof leftNorm === 'string')
+      return leftNorm.includes(String(rightNorm ?? ''))
+    if (Array.isArray(left))
+      return left.map((item) => normalizeScalar(item)).includes(rightNorm)
     return false
   }
   if (expr.operator === 'regex') {
-    if (typeof left !== 'string') return false
+    if (typeof leftNorm !== 'string') return false
     try {
-      return new RegExp(String(right ?? '')).test(left)
+      return new RegExp(String(rightNorm ?? '')).test(leftNorm)
     } catch {
       return false
     }
@@ -440,14 +454,14 @@ export function apply(ctx: Context, config: Config = {}) {
   ctx.middleware(async (session, next) => {
     await ready
     const vars: Record<string, unknown> = {
-      platform: session.platform,
-      selfId: session.selfId,
-      userId: session.userId,
-      channelId: session.channelId,
-      guildId: session.guildId,
+      platform: String(session.platform ?? ''),
+      selfId: String(session.selfId ?? ''),
+      userId: String(session.userId ?? ''),
+      channelId: String(session.channelId ?? ''),
+      guildId: String(session.guildId ?? ''),
       isDirect: session.isDirect,
-      content: session.content,
-      subtype: session.subtype,
+      content: String(session.content ?? ''),
+      type: String((session as any).type ?? ''),
       event: session.event,
       author: session.author,
       quote: session.quote
@@ -471,18 +485,18 @@ export function apply(ctx: Context, config: Config = {}) {
     await ready
     const plugin = pluginResolver.resolveByCommand(argv.command)
     const vars: Record<string, unknown> = {
-      platform: argv.session.platform,
-      selfId: argv.session.selfId,
-      userId: argv.session.userId,
-      channelId: argv.session.channelId,
-      guildId: argv.session.guildId,
+      platform: String(argv.session.platform ?? ''),
+      selfId: String(argv.session.selfId ?? ''),
+      userId: String(argv.session.userId ?? ''),
+      channelId: String(argv.session.channelId ?? ''),
+      guildId: String(argv.session.guildId ?? ''),
       isDirect: argv.session.isDirect,
-      content: argv.session.content,
-      subtype: argv.session.subtype,
+      content: String(argv.session.content ?? ''),
+      type: String((argv.session as any).type ?? ''),
       event: argv.session.event,
       author: argv.session.author,
       quote: argv.session.quote,
-      commandName: argv.command.name,
+      commandName: String(argv.command.name ?? ''),
       pluginKey: plugin?.key,
       pluginName: plugin?.name
     }
