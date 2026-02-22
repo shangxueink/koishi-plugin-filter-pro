@@ -27,13 +27,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/koishijs/koishi.git",
-    "directory": "plugins/common/ruleset"
+    "url": "git+https://github.com/Hoshino-Yumetsuki/koishi-plugin-filter-pro",
+    "directory": "/"
   },
   "bugs": {
-    "url": "https://github.com/koishijs/koishi/issues"
+    "url": "https://github.com/Hoshino-Yumetsuki/koishi-plugin-filter-pro/issues"
   },
-  "homepage": "https://koishi.chat",
+  "homepage": "https://github.com/Hoshino-Yumetsuki/koishi-plugin-filter-pro",
   "keywords": [
     "bot",
     "chatbot",
@@ -45,11 +45,7 @@
   ],
   "koishi": {
     "browser": true,
-    "category": "tool",
-    "description": {
-      "en": "Ruleset middleware for bypass/block actions",
-      "zh": "支持 bypass/block 的规则集中间件"
-    }
+    "category": "tool"
   },
   "peerDependencies": {
     "@koishijs/plugin-console": "^5.11.0",
