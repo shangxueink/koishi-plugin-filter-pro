@@ -57,12 +57,14 @@ export interface RuleItem {
 
 export interface Config {
   filename?: string
+  debug?: boolean
 }
 
 export const Config: Schema<Config> = Schema.object({
   filename: Schema.string()
     .default('rules.json')
-    .description('持久化文件名（位于 data/filterpro/ 下）。')
+    .description('持久化文件名（位于 data/filterpro/ 下）。'),
+  debug: Schema.boolean().default(false).description('输出规则匹配调试日志。')
 })
 
 interface RuleInput {
@@ -421,6 +423,13 @@ export function apply(ctx: Context, config: Config = {}) {
   const state: RuleState = { rules: [] }
   const persist = createPersister(dataFile)
   const pluginResolver = createPluginResolver(ctx)
+  const logger = ctx.logger('filter-pro')
+  const debug = !!config.debug
+
+  const trace = (stage: string, payload: Record<string, unknown>) => {
+    if (!debug) return
+    logger.info('[trace:%s] %s', stage, JSON.stringify(payload))
+  }
 
   const initialize = async () => {
     await mkdir(dataDir, { recursive: true })
@@ -467,16 +476,63 @@ export function apply(ctx: Context, config: Config = {}) {
       quote: session.quote
     }
 
+    trace('message:incoming', {
+      platform: vars.platform,
+      userId: vars.userId,
+      channelId: vars.channelId,
+      guildId: vars.guildId,
+      isDirect: vars.isDirect,
+      content: vars.content,
+      ruleCount: state.rules.length
+    })
+
     for (const rule of sortRules(state.rules)) {
       if (!rule.enabled) continue
       if (rule.target.type !== 'global') continue
-      if (!matchTarget(rule.target, vars)) continue
+      if (!matchTarget(rule.target, vars)) {
+        trace('message:skip-target', {
+          ruleId: rule.id,
+          ruleName: rule.name,
+          target: rule.target,
+          pluginKey: vars.pluginKey
+        })
+        continue
+      }
       const matched = evaluateExpr(rule.condition, vars)
+      trace('message:evaluate', {
+        ruleId: rule.id,
+        ruleName: rule.name,
+        action: rule.action,
+        matched,
+        expr: rule.condition
+      })
       if (!matched) continue
-      if (rule.action === 'bypass') return next()
-      if (rule.response) return rule.response
+      if (rule.action === 'bypass') {
+        trace('message:action', {
+          ruleId: rule.id,
+          action: 'bypass'
+        })
+        return next()
+      }
+      if (rule.response) {
+        trace('message:action', {
+          ruleId: rule.id,
+          action: 'block',
+          response: rule.response
+        })
+        return rule.response
+      }
+      trace('message:action', {
+        ruleId: rule.id,
+        action: 'block',
+        response: ''
+      })
       return ''
     }
+
+    trace('message:pass', {
+      reason: 'no-rule-matched'
+    })
 
     return next()
   }, true)
@@ -501,16 +557,63 @@ export function apply(ctx: Context, config: Config = {}) {
       pluginName: plugin?.name
     }
 
+    trace('command:incoming', {
+      command: vars.commandName,
+      pluginKey: vars.pluginKey,
+      pluginName: vars.pluginName,
+      isDirect: vars.isDirect,
+      guildId: vars.guildId,
+      content: vars.content,
+      ruleCount: state.rules.length
+    })
+
     for (const rule of sortRules(state.rules)) {
       if (!rule.enabled) continue
       if (rule.target.type === 'global') continue
-      if (!matchTarget(rule.target, vars)) continue
+      if (!matchTarget(rule.target, vars)) {
+        trace('command:skip-target', {
+          ruleId: rule.id,
+          ruleName: rule.name,
+          target: rule.target,
+          pluginKey: vars.pluginKey
+        })
+        continue
+      }
       const matched = evaluateExpr(rule.condition, vars)
+      trace('command:evaluate', {
+        ruleId: rule.id,
+        ruleName: rule.name,
+        action: rule.action,
+        matched,
+        expr: rule.condition
+      })
       if (!matched) continue
-      if (rule.action === 'bypass') return
-      if (rule.response) return rule.response
+      if (rule.action === 'bypass') {
+        trace('command:action', {
+          ruleId: rule.id,
+          action: 'bypass'
+        })
+        return
+      }
+      if (rule.response) {
+        trace('command:action', {
+          ruleId: rule.id,
+          action: 'block',
+          response: rule.response
+        })
+        return rule.response
+      }
+      trace('command:action', {
+        ruleId: rule.id,
+        action: 'block',
+        response: ''
+      })
       return ''
     }
+
+    trace('command:pass', {
+      reason: 'no-rule-matched'
+    })
   })
 
   ctx.inject(['console'], (ctx) => {
