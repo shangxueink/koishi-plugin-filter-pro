@@ -21,7 +21,7 @@
             :model-value="row.field"
             :options="fieldSelectOptions"
             class="sel-field"
-            @update:model-value="(v) => { const wasBool = row.field === 'isDirect'; row.field = v; if (v === 'isDirect') { row.value = false; row.valueText = 'false'; if (!['eq','ne','exists'].includes(row.operator)) row.operator = 'eq'; } else if (wasBool) { row.value = ''; row.valueText = ''; } emitChange() }"
+            @update:model-value="(v: string) => { const wasBool = row.field === 'isDirect'; row.field = v; if (v === 'isDirect') { row.value = false; row.valueText = 'false'; if (!['eq','ne','exists'].includes(row.operator)) row.operator = 'eq'; } else if (wasBool) { row.value = ''; row.valueText = ''; } emitChange() }"
           />
           <input
             v-if="row.field === '__custom__'"
@@ -34,7 +34,7 @@
             :model-value="row.operator"
             :options="row.field === 'isDirect' ? boolOperatorOptions : operatorOptions"
             class="sel-op"
-            @update:model-value="(v) => { row.operator = v; emitChange() }"
+            @update:model-value="(v: string) => { row.operator = v; emitChange() }"
           />
           <!-- isDirect：开关 -->
           <label v-if="row.field === 'isDirect' && row.operator !== 'exists'" class="bool-toggle">
@@ -50,7 +50,7 @@
             v-else-if="row.field !== 'isDirect' && row.operator !== 'exists'"
             class="input val-input"
             v-model="row.valueText"
-            @input="() => onValueInput(row)"
+            @input="() => { row.value = parseValue(row.valueText); emitChange() }"
             placeholder="比较值"
           />
           <button class="del-btn" :disabled="rows.length <= 1" @click="removeRow(i)" title="删除此条件">✕</button>
@@ -127,12 +127,12 @@ const fieldOptions = [
   { value: 'subtype', label: '消息子类型（subtype）' }
 ]
 
-const _fieldSelectOptions = [
+const fieldSelectOptions = [
   ...fieldOptions,
   { value: '__custom__', label: '自定义字段...' }
 ]
 
-const _operatorOptions = [
+const operatorOptions = [
   { value: 'eq', label: '等于' },
   { value: 'ne', label: '不等于' },
   { value: 'includes', label: '包含' },
@@ -144,7 +144,7 @@ const _operatorOptions = [
   { value: 'exists', label: '存在' }
 ]
 
-const _boolOperatorOptions = [
+const boolOperatorOptions = [
   { value: 'eq', label: '等于' },
   { value: 'ne', label: '不等于' },
   { value: 'exists', label: '存在' }
@@ -316,7 +316,7 @@ function buildPreview(expr: RuleExpr): string {
   return ''
 }
 
-const _previewText = computed(() => buildPreview(fromFlat(rows.value)))
+const previewText = computed(() => buildPreview(fromFlat(rows.value)))
 
 // ── 操作 ───────────────────────────────────────────────────────────────────
 
@@ -326,19 +326,19 @@ function emitChange() {
   emit('update:modelValue', expr)
 }
 
-function _addRow(connector: 'and' | 'or' | null) {
+function addRow(connector: 'and' | 'or' | null) {
   rows.value.push(makeDefaultRow(connector ?? 'and'))
   emitChange()
 }
 
-function _removeRow(i: number) {
+function removeRow(i: number) {
   if (rows.value.length <= 1) return
   rows.value.splice(i, 1)
   if (i === 0) rows.value[0].connector = null
   emitChange()
 }
 
-function _toggleConnector(i: number) {
+function toggleConnector(i: number) {
   if (i <= 0) return
   rows.value[i].connector = rows.value[i].connector === 'or' ? 'and' : 'or'
   emitChange()
@@ -353,11 +353,6 @@ function parseValue(text: string): unknown {
   const n = Number(t)
   if (Number.isFinite(n)) return n
   return text
-}
-
-function _onValueInput(row: FlatRow) {
-  row.value = parseValue(row.valueText)
-  emitChange()
 }
 </script>
 

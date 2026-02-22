@@ -50,18 +50,18 @@ const root = ref<HTMLElement | null>(null)
 const open = ref(false)
 const menuStyle = ref({ left: 0, top: 0, width: 0 })
 
-const _currentLabel = computed(
+const currentLabel = computed(
   () =>
     props.options.find((item) => item.value === props.modelValue)?.label || ''
 )
 
-function _toggle() {
+function toggle() {
   if (props.disabled) return
   open.value = !open.value
   if (open.value) updateMenuPosition()
 }
 
-function _pick(value: string) {
+function pick(value: string) {
   emit('update:modelValue', value)
   open.value = false
 }

@@ -44,7 +44,7 @@
     "middleware"
   ],
   "koishi": {
-    "browser": "lib/browser/index.js",
+    "browser": true,
     "category": "tool",
     "description": {
       "en": "Ruleset middleware for bypass/block actions",

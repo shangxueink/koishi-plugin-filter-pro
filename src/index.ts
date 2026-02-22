@@ -1,4 +1,3 @@
-
 import { type Awaitable, type Context, Random, Schema } from 'koishi'
 import { DataService } from '@koishijs/plugin-console'
 import { resolve, join } from 'node:path'
@@ -501,7 +500,7 @@ export function apply(ctx: Context, config: Config = {}) {
   ctx.inject(['console'], (ctx) => {
     ctx.console.addEntry({
       dev: resolve(__dirname, '../client/index.ts'),
-      prod: resolve(__dirname, '../dist/index.js'),
+      prod: resolve(__dirname, '../dist')
     })
 
     const provider = new FilterProProvider(ctx, state)

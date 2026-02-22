@@ -7,7 +7,7 @@ const serverExternal = new RegExp(
   `^(node:|${[
     ...Object.getOwnPropertyNames(pkg.devDependencies ?? {}),
     ...Object.getOwnPropertyNames(pkg.dependencies ?? {}),
-    ...Object.getOwnPropertyNames(pkg.peerDependencies ?? {}),
+    ...Object.getOwnPropertyNames(pkg.peerDependencies ?? {})
   ].join('|')})`
 )
 
@@ -18,31 +18,39 @@ const serverConfigs = [
     input: './src/index.ts',
     platform: 'node',
     output: [{ file: 'lib/index.mjs', format: 'es', minify: true }],
-    external: serverExternal,
+    external: serverExternal
   },
   {
     input: './src/index.ts',
     platform: 'node',
     output: [{ file: 'lib/index.cjs', format: 'cjs', minify: true }],
-    external: serverExternal,
+    external: serverExternal
   },
   {
     input: './src/index.ts',
     platform: 'node',
     output: [{ dir: 'lib', format: 'es' }],
     plugins: [dts({ emitDtsOnly: true })],
-    external: serverExternal,
-  },
+    external: serverExternal
+  }
 ]
 
 const clientConfigs = [
   {
     input: './client/index.ts',
     platform: 'browser',
-    output: [{ dir: 'dist', entryFileNames: 'index.js', assetFileNames: '[name][extname]', format: 'cjs', minify: true }],
+    output: [
+      {
+        dir: 'dist',
+        entryFileNames: 'index.js',
+        assetFileNames: '[name][extname]',
+        format: 'cjs',
+        minify: true
+      }
+    ],
     plugins: [vue()],
-    external: clientExternal,
-  },
+    external: clientExternal
+  }
 ]
 
 export default defineConfig([...serverConfigs, ...clientConfigs])

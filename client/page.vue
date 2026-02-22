@@ -155,22 +155,22 @@ interface PluginTargetOption {
   label: string
 }
 
-const _actionLabel: Record<RuleAction, string> = {
+const actionLabel: Record<RuleAction, string> = {
   bypass: '放行',
   block: '拦截'
 }
 
-const _targetTypeOptions = [
+const targetTypeOptions = [
   { label: '全局', value: 'global' },
   { label: '插件', value: 'plugin' }
 ]
 
-const _actionOptions = [
+const actionOptions = [
   { label: '放行（bypass）', value: 'bypass' },
   { label: '拦截（block）', value: 'block' }
 ]
 
-const _pluginTargetOptions = computed(() => [
+const pluginTargetOptions = computed(() => [
   { label: '请选择插件实例', value: '' },
   ...pluginTargets.value.map((item) => ({ label: item.label, value: item.key }))
 ])
@@ -184,7 +184,7 @@ const sortedRules = computed(() =>
     (a, b) => a.priority - b.priority || a.id.localeCompare(b.id)
   )
 )
-const _currentRule = computed(() =>
+const currentRule = computed(() =>
   sortedRules.value.find((item) => item.id === selectedId.value)
 )
 
@@ -211,7 +211,7 @@ async function refresh() {
   }
 }
 
-async function _createRule() {
+async function createRule() {
   await request('filter-pro/create', {
     name: 'new-rule',
     enabled: true,
@@ -225,13 +225,13 @@ async function _createRule() {
   selectedId.value = sortedRules.value.at(-1)?.id || selectedId.value
 }
 
-async function _onToggle(rule: RuleItem, event: Event) {
+async function onToggle(rule: RuleItem, event: Event) {
   const target = event.target as HTMLInputElement | null
   rule.enabled = !!target?.checked
   await request('filter-pro/toggle', { id: rule.id, enabled: rule.enabled })
 }
 
-async function _saveRule(rule: RuleItem) {
+async function saveRule(rule: RuleItem) {
   const target =
     rule.target.type === 'global'
       ? { type: 'global' as const, value: '' }
@@ -250,12 +250,12 @@ async function _saveRule(rule: RuleItem) {
   await refresh()
 }
 
-async function _removeRule(id: string) {
+async function removeRule(id: string) {
   await request('filter-pro/delete', id)
   await refresh()
 }
 
-async function _move(id: string, offset: number) {
+async function move(id: string, offset: number) {
   const list = sortedRules.value
   const index = list.findIndex((item) => item.id === id)
   if (index < 0) return
