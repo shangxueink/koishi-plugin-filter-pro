@@ -79,6 +79,7 @@
 
 <script lang="ts" setup>
 import { computed, ref, watch } from 'vue'
+import FpSelect from './fp-select.vue'
 
 defineOptions({ name: 'ExprEditor' })
 
