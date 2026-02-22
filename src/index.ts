@@ -292,11 +292,13 @@ function createPluginResolver(ctx: Context) {
   }
 
   const resolveByCommand = (command: any): PluginTargetOption | undefined => {
-    let scope: any = command.caller.scope
-    while (scope) {
+    let scope: any = command?.caller?.scope
+    const visited = new Set<any>()
+    while (scope && !visited.has(scope)) {
+      visited.add(scope)
       const found = byScope.get(scope)
       if (found) return found
-      scope = scope.parent?.scope
+      scope = scope.parent
     }
   }
 
