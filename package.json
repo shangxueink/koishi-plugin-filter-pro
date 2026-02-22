@@ -1,0 +1,68 @@
+{
+  "name": "koishi-plugin-filter-pro",
+  "description": "Ruleset middleware plugin for Koishi",
+  "version": "2.3.17",
+  "main": "lib/index.cjs",
+  "module": "lib/index.mjs",
+  "types": "lib/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "require": "./lib/index.cjs",
+      "import": "./lib/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "dist"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "yarn rolldown -c rolldown.config.js",
+    "publish": "yarn npm publish",
+    "lint": "biome check && biome lint",
+    "lint-fix": "biome format --write && biome lint --write"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/koishijs/koishi.git",
+    "directory": "plugins/common/ruleset"
+  },
+  "bugs": {
+    "url": "https://github.com/koishijs/koishi/issues"
+  },
+  "homepage": "https://koishi.chat",
+  "keywords": [
+    "bot",
+    "chatbot",
+    "koishi",
+    "plugin",
+    "ruleset",
+    "filter",
+    "middleware"
+  ],
+  "koishi": {
+    "browser": "lib/browser/index.js",
+    "category": "tool",
+    "description": {
+      "en": "Ruleset middleware for bypass/block actions",
+      "zh": "支持 bypass/block 的规则集中间件"
+    }
+  },
+  "peerDependencies": {
+    "@koishijs/plugin-console": "^5.11.0",
+    "koishi": "^4.18.10"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.14",
+    "@koishijs/plugin-console": "^5.30.11",
+    "@koishijs/plugin-proxy-agent": "^0.3.3",
+    "@types/node": "^25.2.1",
+    "@vitejs/plugin-vue": "^6.0.4",
+    "koishi": "^4.18.10",
+    "rolldown": "^1.0.0-rc.3",
+    "rolldown-plugin-dts": "^0.22.1"
+  }
+}
