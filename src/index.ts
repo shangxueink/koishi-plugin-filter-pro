@@ -298,7 +298,7 @@ function createPluginResolver(ctx: Context) {
       visited.add(scope)
       const found = byScope.get(scope)
       if (found) return found
-      scope = scope.parent
+      scope = scope.parent?.scope
     }
   }
 
