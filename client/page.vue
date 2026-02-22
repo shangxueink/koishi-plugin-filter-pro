@@ -111,7 +111,6 @@
 <script lang="ts" setup>
 import { computed, ref } from 'vue'
 import { send } from '@koishijs/client'
-import FpSelect from './components/fp-select.vue'
 import ExprEditor from './components/expr-editor.vue'
 
 const request = send as any
