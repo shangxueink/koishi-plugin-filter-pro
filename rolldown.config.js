@@ -44,7 +44,7 @@ const clientConfigs = [
         dir: 'dist',
         entryFileNames: 'index.js',
         assetFileNames: '[name][extname]',
-        format: 'cjs',
+        format: 'es',
         minify: true
       }
     ],

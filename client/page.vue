@@ -79,11 +79,13 @@
 
           <label class="field switch">
             <span>启用状态</span>
-            <input
-              type="checkbox"
-              :checked="currentRule.enabled"
-              @change="onToggle(currentRule, $event)"
-            />
+            <div
+              class="toggle-switch"
+              :class="{ active: currentRule.enabled }"
+              @click="onToggle(currentRule)"
+            >
+              <div class="toggle-thumb" />
+            </div>
           </label>
         </div>
 
@@ -111,6 +113,7 @@
 <script lang="ts" setup>
 import { computed, ref } from 'vue'
 import { send } from '@koishijs/client'
+import FpSelect from './components/fp-select.vue'
 import ExprEditor from './components/expr-editor.vue'
 
 const request = send as any
@@ -230,9 +233,8 @@ async function createRule() {
   selectedId.value = sortedRules.value.at(-1)?.id || selectedId.value
 }
 
-async function onToggle(rule: RuleItem, event: Event) {
-  const target = event.target as HTMLInputElement | null
-  rule.enabled = !!target?.checked
+async function onToggle(rule: RuleItem) {
+  rule.enabled = !rule.enabled
   await request('filter-pro/toggle', { id: rule.id, enabled: rule.enabled })
 }
 
@@ -432,6 +434,37 @@ void refresh()
 
 .field.switch {
   justify-content: flex-end;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--k-card-border, rgba(127, 127, 127, 0.4));
+  cursor: pointer;
+  transition: background 0.25s;
+  flex-shrink: 0;
+}
+
+.toggle-switch.active {
+  background: var(--k-color-active, #5865f2);
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.25s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.toggle-switch.active .toggle-thumb {
+  transform: translateX(20px);
 }
 
 .input {
