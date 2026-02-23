@@ -3,7 +3,7 @@
     <ExprNode :node="root" :path="[]" @update="(e) => updateNode(e.path, e.updates)" @remove="removeNode" />
     <div class="preview-section">
       <div class="preview-title">表达式预览</div>
-      <code class="preview-code">{{ previewText || '（空）' }}</code>
+      <code class="preview-code">{{ previewText || '（条件为空，此条规则视为无效/关闭）' }}</code>
     </div>
   </div>
 </template>
