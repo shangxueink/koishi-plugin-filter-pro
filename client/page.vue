@@ -89,6 +89,20 @@
       </div>
     </div>
   </k-layout>
+
+  <!-- 删除确认弹窗 -->
+  <teleport to="body">
+    <div v-if="showDeleteConfirm" class="confirm-overlay" @click.self="showDeleteConfirm = false">
+      <div class="confirm-dialog">
+        <div class="confirm-title">删除规则</div>
+        <div class="confirm-body">确定要删除这条规则吗？此操作不可撤销。</div>
+        <div class="confirm-actions">
+          <k-button @click="showDeleteConfirm = false">取消</k-button>
+          <button class="confirm-danger-btn" @click="doRemove">确认删除</button>
+        </div>
+      </div>
+    </div>
+  </teleport>
 </template>
 
 <script lang="ts" setup>
@@ -252,9 +266,16 @@ async function saveRule(rule: RuleItem) {
   message.success('保存成功')
 }
 
+const showDeleteConfirm = ref(false)
+
 async function confirmRemove() {
   if (!currentRule.value) return
-  if (!confirm('确定要删除这条规则吗？')) return
+  showDeleteConfirm.value = true
+}
+
+async function doRemove() {
+  showDeleteConfirm.value = false
+  if (!currentRule.value) return
   await removeRule(currentRule.value.id)
 }
 
@@ -478,6 +499,67 @@ void refresh()
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* ── 删除确认框 ── */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirm-dialog {
+  background: var(--k-card-bg, #1e1e1e);
+  border: 1px solid var(--k-card-border, rgba(127, 127, 127, 0.35));
+  border-radius: 12px;
+  padding: 24px 28px;
+  min-width: 320px;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.confirm-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--k-text-normal, inherit);
+}
+
+.confirm-body {
+  font-size: 14px;
+  color: var(--k-text-secondary, #aaa);
+  line-height: 1.6;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.confirm-danger-btn {
+  height: 35px;
+  box-sizing: border-box;
+  padding: 0 16px;
+  border-radius: 6px;
+  border: none;
+  background: #e74c3c;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.confirm-danger-btn:hover {
+  opacity: 0.85;
 }
 
 @media (max-width: 980px) {
