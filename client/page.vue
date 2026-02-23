@@ -71,7 +71,14 @@
 
           <label class="field">
             <span>优先级</span>
-            <input class="input" type="number" min="1" step="1" v-model.number="currentRule.priority" />
+            <input
+              class="input"
+              type="number"
+              min="1"
+              step="1"
+              v-model.number="currentRule.priority"
+              @input="validatePriority"
+            />
           </label>
 
           <label class="field switch">
@@ -225,6 +232,17 @@ async function createRule() {
   await refresh()
   selectedId.value = sortedRules.value.at(-1)?.id || selectedId.value
   message.success('创建成功')
+}
+
+function validatePriority(e: Event) {
+  const input = e.target as HTMLInputElement
+  const value = Number(input.value)
+  if (value < 1 || !Number.isInteger(value)) {
+    input.value = String(Math.max(1, Math.floor(Math.abs(value)) || 1))
+    if (currentRule.value) {
+      currentRule.value.priority = Number(input.value)
+    }
+  }
 }
 
 async function onToggle(rule: RuleItem) {
