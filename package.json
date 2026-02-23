@@ -25,6 +25,10 @@
     "lint": "biome check && biome lint",
     "lint-fix": "biome format --write && biome lint --write"
   },
+  "contributors": [
+    "q78kg <hoshino-yumetsuki@outlook.com>",
+    "shangxueink <1919892171@qq.com>"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Hoshino-Yumetsuki/koishi-plugin-filter-pro",
