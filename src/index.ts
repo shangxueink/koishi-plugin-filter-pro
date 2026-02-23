@@ -82,6 +82,8 @@ interface RuleState {
   rules: RuleItem[]
 }
 
+type FilterFn = (session: any) => boolean
+
 interface PluginTargetOption {
   key: string
   name: string
@@ -268,13 +270,62 @@ function collectPluginTargets(ctx: Context): PluginTargetOption[] {
   return result.sort((a, b) => a.key.localeCompare(b.key))
 }
 
-function createPluginResolver(ctx: Context) {
+function collectPluginForks(ctx: Context): Map<string, any> {
+  const result = new Map<string, any>()
+  const visited = new Set<any>()
+
+  const walk = (cursor: any) => {
+    const record: Record<string, any> | undefined = cursor?.scope?.[kRecord]
+    if (!record || visited.has(record)) return
+    visited.add(record)
+
+    for (const [fullKey, fork] of Object.entries(record)) {
+      const key = String(fullKey).replace(/^~/, '')
+      result.set(key, fork)
+      walk((fork as any)?.ctx)
+    }
+  }
+
+  walk(ctx.root)
+  return result
+}
+
+function createPluginResolver(
+  ctx: Context,
+  trace?: (stage: string, payload: Record<string, unknown>) => void
+) {
   let targets: PluginTargetOption[] = []
   const byScope = new Map<any, PluginTargetOption>()
+  const byKey = new Map<string, PluginTargetOption>()
+  const byCommand = new WeakMap<any, PluginTargetOption>()
+
+  const resolveByScope = (scope: any): PluginTargetOption | undefined => {
+    if (!scope) return
+    const direct = byScope.get(scope)
+    if (direct) return direct
+
+    const loader = (ctx as any).loader
+    if (loader?.paths) {
+      const paths = loader.paths(scope) as string[]
+      for (const rawKey of paths || []) {
+        const key = String(rawKey).replace(/^~/, '')
+        const found = byKey.get(key)
+        if (found) return found
+      }
+    }
+  }
 
   const rebuild = () => {
     targets = collectPluginTargets(ctx)
     byScope.clear()
+    byKey.clear()
+    for (const item of targets) {
+      byKey.set(item.key, item)
+    }
+    trace?.('resolver:rebuild:start', {
+      targetCount: targets.length,
+      sample: targets.slice(0, 10).map((item) => item.key)
+    })
 
     const visited = new Set<any>()
     const walk = (cursor: any) => {
@@ -283,7 +334,7 @@ function createPluginResolver(ctx: Context) {
       visited.add(record)
       for (const [fullKey, fork] of Object.entries(record)) {
         const key = String(fullKey).replace(/^~/, '')
-        const target = targets.find((item) => item.key === key)
+        const target = byKey.get(key)
         if (target && (fork as any)?.ctx?.scope) {
           byScope.set((fork as any).ctx.scope, target)
         }
@@ -291,23 +342,59 @@ function createPluginResolver(ctx: Context) {
       }
     }
     walk(ctx.root)
+    trace?.('resolver:rebuild:done', {
+      targetCount: targets.length,
+      scopeBindings: byScope.size
+    })
   }
 
   const resolveByCommand = (command: any): PluginTargetOption | undefined => {
-    let scope: any = command?.caller?.scope
-    const visited = new Set<any>()
-    while (scope && !visited.has(scope)) {
-      visited.add(scope)
-      const found = byScope.get(scope)
-      if (found) return found
-      scope = scope.parent?.scope
+    const commandName = String(command?.name ?? '')
+    const cached = byCommand.get(command)
+    if (cached) {
+      trace?.('resolver:resolve:cache-hit', {
+        command: commandName,
+        pluginKey: cached.key
+      })
+      return cached
+    }
+    const resolved = resolveByScope(command?.caller?.scope)
+    if (resolved) {
+      byCommand.set(command, resolved)
+      trace?.('resolver:resolve:resolved', {
+        command: commandName,
+        pluginKey: resolved.key,
+        pluginName: resolved.name
+      })
+    } else {
+      trace?.('resolver:resolve:miss', {
+        command: commandName
+      })
+    }
+    return resolved
+  }
+
+  const bindCommand = (command: any) => {
+    const resolved = resolveByScope(command?.caller?.scope)
+    if (resolved) {
+      byCommand.set(command, resolved)
+      trace?.('resolver:bind:ok', {
+        command: String(command?.name ?? ''),
+        pluginKey: resolved.key,
+        pluginName: resolved.name
+      })
+    } else {
+      trace?.('resolver:bind:miss', {
+        command: String(command?.name ?? '')
+      })
     }
   }
 
   return {
     rebuild,
     list: () => targets,
-    resolveByCommand
+    resolveByCommand,
+    bindCommand
   }
 }
 
@@ -422,13 +509,50 @@ export function apply(ctx: Context, config: Config = {}) {
   const dataFile = join(dataDir, config.filename || 'rules.json')
   const state: RuleState = { rules: [] }
   const persist = createPersister(dataFile)
-  const pluginResolver = createPluginResolver(ctx)
   const logger = ctx.logger('filter-pro')
   const debug = !!config.debug
 
   const trace = (stage: string, payload: Record<string, unknown>) => {
     if (!debug) return
     logger.info('[trace:%s] %s', stage, JSON.stringify(payload))
+  }
+
+  const pluginResolver = createPluginResolver(ctx, trace)
+  const originalFilters = new Map<any, FilterFn>()
+
+  const buildVars = (session: any, extras: Record<string, unknown> = {}) => ({
+    platform: String(session.platform ?? ''),
+    selfId: String(session.selfId ?? ''),
+    userId: String(session.userId ?? ''),
+    channelId: String(session.channelId ?? ''),
+    guildId: String(session.guildId ?? ''),
+    isDirect: session.isDirect,
+    content: String(session.content ?? ''),
+    type: String(session.type ?? ''),
+    event: session.event,
+    author: session.author,
+    quote: session.quote,
+    ...extras
+  })
+
+  const evaluatePluginRules = (pluginKey: string, session: any) => {
+    const vars = buildVars(session, { pluginKey })
+    for (const rule of sortRules(state.rules)) {
+      if (!rule.enabled) continue
+      if (rule.target.type !== 'plugin') continue
+      if ((rule.target.value || '').trim() !== pluginKey) continue
+      const matched = evaluateExpr(rule.condition, vars)
+      trace('native-filter:evaluate', {
+        pluginKey,
+        ruleId: rule.id,
+        ruleName: rule.name,
+        action: rule.action,
+        matched
+      })
+      if (!matched) continue
+      return rule.action === 'bypass'
+    }
+    return true
   }
 
   const initialize = async () => {
@@ -452,29 +576,82 @@ export function apply(ctx: Context, config: Config = {}) {
   const refreshPluginTargets = async () => {
     await ready
     pluginResolver.rebuild()
+    const commands = (ctx as any)?.$commander?._commandList
+    if (Array.isArray(commands)) {
+      trace('resolver:bind-existing:start', {
+        commandCount: commands.length
+      })
+      for (const command of commands) {
+        pluginResolver.bindCommand(command)
+      }
+      trace('resolver:bind-existing:done', {
+        commandCount: commands.length
+      })
+    } else {
+      trace('resolver:bind-existing:skip', {
+        reason: '$commander not available'
+      })
+    }
+  }
+
+  const applyNativeFilterInjection = async () => {
+    await refreshPluginTargets()
+    const forks = collectPluginForks(ctx)
+    const activeKeys = new Set(
+      state.rules
+        .filter(
+          (rule) =>
+            rule.enabled && rule.target.type === 'plugin' && !!rule.target.value
+        )
+        .map((rule) => (rule.target.value || '').trim())
+    )
+
+    trace('native-filter:sync:start', {
+      activeTargetCount: activeKeys.size,
+      discoveredForks: forks.size
+    })
+
+    for (const [pluginKey, fork] of forks.entries()) {
+      const hostCtx = (fork as any)?.parent
+      if (!hostCtx || typeof hostCtx.filter !== 'function') continue
+
+      if (!originalFilters.has(hostCtx)) {
+        originalFilters.set(hostCtx, hostCtx.filter)
+      }
+      const original = originalFilters.get(hostCtx)!
+
+      if (!activeKeys.has(pluginKey)) {
+        hostCtx.filter = original
+        continue
+      }
+
+      hostCtx.filter = (session: any) => {
+        if (!original(session)) return false
+        return evaluatePluginRules(pluginKey, session)
+      }
+    }
+
+    trace('native-filter:sync:done', {
+      activeTargetCount: activeKeys.size
+    })
   }
 
   void refreshPluginTargets()
+  void applyNativeFilterInjection()
   ctx.on('ready', refreshPluginTargets)
-  ctx.on('internal/fork', refreshPluginTargets)
-  ctx.on('internal/update', refreshPluginTargets)
-  ctx.on('internal/runtime', refreshPluginTargets)
+  ctx.on('internal/fork', applyNativeFilterInjection)
+  ctx.on('internal/update', applyNativeFilterInjection)
+  ctx.on('internal/runtime', applyNativeFilterInjection)
+  ctx.on('command-added', (command) => {
+    pluginResolver.bindCommand(command)
+    trace('command:added', {
+      command: String((command as any)?.name ?? '')
+    })
+  })
 
   ctx.middleware(async (session, next) => {
     await ready
-    const vars: Record<string, unknown> = {
-      platform: String(session.platform ?? ''),
-      selfId: String(session.selfId ?? ''),
-      userId: String(session.userId ?? ''),
-      channelId: String(session.channelId ?? ''),
-      guildId: String(session.guildId ?? ''),
-      isDirect: session.isDirect,
-      content: String(session.content ?? ''),
-      type: String((session as any).type ?? ''),
-      event: session.event,
-      author: session.author,
-      quote: session.quote
-    }
+    const vars: Record<string, unknown> = buildVars(session)
 
     trace('message:incoming', {
       platform: vars.platform,
@@ -540,22 +717,11 @@ export function apply(ctx: Context, config: Config = {}) {
   ctx.before('command/execute', async (argv) => {
     await ready
     const plugin = pluginResolver.resolveByCommand(argv.command)
-    const vars: Record<string, unknown> = {
-      platform: String(argv.session.platform ?? ''),
-      selfId: String(argv.session.selfId ?? ''),
-      userId: String(argv.session.userId ?? ''),
-      channelId: String(argv.session.channelId ?? ''),
-      guildId: String(argv.session.guildId ?? ''),
-      isDirect: argv.session.isDirect,
-      content: String(argv.session.content ?? ''),
-      type: String((argv.session as any).type ?? ''),
-      event: argv.session.event,
-      author: argv.session.author,
-      quote: argv.session.quote,
+    const vars: Record<string, unknown> = buildVars(argv.session, {
       commandName: String(argv.command.name ?? ''),
       pluginKey: plugin?.key,
       pluginName: plugin?.name
-    }
+    })
 
     trace('command:incoming', {
       command: vars.commandName,
@@ -567,52 +733,8 @@ export function apply(ctx: Context, config: Config = {}) {
       ruleCount: state.rules.length
     })
 
-    for (const rule of sortRules(state.rules)) {
-      if (!rule.enabled) continue
-      if (rule.target.type === 'global') continue
-      if (!matchTarget(rule.target, vars)) {
-        trace('command:skip-target', {
-          ruleId: rule.id,
-          ruleName: rule.name,
-          target: rule.target,
-          pluginKey: vars.pluginKey
-        })
-        continue
-      }
-      const matched = evaluateExpr(rule.condition, vars)
-      trace('command:evaluate', {
-        ruleId: rule.id,
-        ruleName: rule.name,
-        action: rule.action,
-        matched,
-        expr: rule.condition
-      })
-      if (!matched) continue
-      if (rule.action === 'bypass') {
-        trace('command:action', {
-          ruleId: rule.id,
-          action: 'bypass'
-        })
-        return
-      }
-      if (rule.response) {
-        trace('command:action', {
-          ruleId: rule.id,
-          action: 'block',
-          response: rule.response
-        })
-        return rule.response
-      }
-      trace('command:action', {
-        ruleId: rule.id,
-        action: 'block',
-        response: ''
-      })
-      return ''
-    }
-
     trace('command:pass', {
-      reason: 'no-rule-matched'
+      reason: 'native-filter-mode'
     })
   })
 
@@ -628,6 +750,7 @@ export function apply(ctx: Context, config: Config = {}) {
 
     const refresh = async () => {
       await persist(state.rules)
+      await applyNativeFilterInjection()
       provider.refresh()
     }
 
