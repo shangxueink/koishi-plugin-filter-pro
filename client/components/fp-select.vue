@@ -6,23 +6,13 @@
     </button>
   </div>
   <teleport to="body">
-    <div
-      v-if="open"
-      class="menu"
-      :style="{
-        left: `${menuStyle.left}px`,
-        top: `${menuStyle.top}px`,
-        width: `${menuStyle.width}px`,
-      }"
-    >
-      <button
-        v-for="item in options"
-        :key="item.value"
-        type="button"
-        class="item"
-        :class="{ active: item.value === modelValue }"
-        @click="pick(item.value)"
-      >
+    <div v-if="open" class="menu" :style="{
+      left: `${menuStyle.left}px`,
+      top: `${menuStyle.top}px`,
+      width: `${menuStyle.width}px`,
+    }">
+      <button v-for="item in options" :key="item.value" type="button" class="item"
+        :class="{ active: item.value === modelValue }" @click="pick(item.value)">
         {{ item.label }}
       </button>
     </div>
@@ -120,6 +110,8 @@ onBeforeUnmount(() => {
 
 .trigger {
   width: 100%;
+  height: 35px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: space-between;

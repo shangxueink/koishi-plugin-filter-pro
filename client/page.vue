@@ -2,109 +2,91 @@
   <k-layout>
     <div class="fp-layout">
       <div class="fp-main">
-      <k-card class="panel list">
-        <template #header>
-          <div class="editor-header">
-            <div class="panel-title">规则列表</div>
-            <k-button @click="createRule">新建规则</k-button>
+        <k-card class="panel list">
+          <template #header>
+            <div class="editor-header">
+              <div class="panel-title">规则列表</div>
+              <k-button @click="createRule">新建规则</k-button>
+            </div>
+          </template>
+
+          <div class="rule-list">
+            <button v-for="rule in sortedRules" :key="rule.id" class="rule-item"
+              :class="{ active: selectedId === rule.id }" @click="selectedId = rule.id">
+              <div class="top">
+                <span class="name">{{ rule.name || '未命名规则' }}</span>
+                <span class="badge" :class="rule.action">{{ actionLabel[rule.action] }}</span>
+              </div>
+              <div class="meta">
+                <span>#{{ rule.priority }}</span>
+                <span>{{ rule.target.type === 'global' ? '全局' : rule.target.value || '未指定插件' }}</span>
+                <span>{{ rule.enabled ? '启用' : '停用' }}</span>
+              </div>
+            </button>
           </div>
-        </template>
+        </k-card>
 
-        <div class="rule-list">
-          <button
-            v-for="rule in sortedRules"
-            :key="rule.id"
-            class="rule-item"
-            :class="{ active: selectedId === rule.id }"
-            @click="selectedId = rule.id"
-          >
-            <div class="top">
-              <span class="name">{{ rule.name || '未命名规则' }}</span>
-              <span class="badge" :class="rule.action">{{ actionLabel[rule.action] }}</span>
+        <k-card class="panel editor" v-if="currentRule">
+          <template #header>
+            <div class="editor-header">
+              <div class="panel-title">规则编辑</div>
+              <div class="actions">
+                <k-button @click="currentRule && saveRule(currentRule)" :disabled="!currentRule">保存</k-button>
+                <k-button @click="confirmRemove" :disabled="!currentRule">删除</k-button>
+                <k-button @click="refresh">刷新</k-button>
+              </div>
             </div>
-            <div class="meta">
-              <span>#{{ rule.priority }}</span>
-              <span>{{ rule.target.type === 'global' ? '全局' : rule.target.value || '未指定插件' }}</span>
-              <span>{{ rule.enabled ? '启用' : '停用' }}</span>
-            </div>
-          </button>
-        </div>
-      </k-card>
+          </template>
 
-      <k-card class="panel editor" v-if="currentRule">
-        <template #header>
-          <div class="editor-header">
-            <div class="panel-title">规则编辑</div>
-            <div class="actions">
-              <k-button @click="currentRule && saveRule(currentRule)" :disabled="!currentRule">保存</k-button>
-              <k-button @click="confirmRemove" :disabled="!currentRule">删除</k-button>
-              <k-button @click="refresh">刷新</k-button>
+          <div class="editor-body">
+            <div class="editor-grid">
+              <label class="field">
+                <span>规则名</span>
+                <input class="input" v-model="currentRule.name" placeholder="输入规则名" />
+              </label>
+
+              <label class="field">
+                <span>目标</span>
+                <FpSelect v-model="currentRule.target.type" :options="targetTypeOptions" />
+              </label>
+
+              <label class="field" v-if="currentRule.target.type === 'plugin'">
+                <span>插件实例</span>
+                <FpSelect :model-value="currentRule.target.value ?? ''" :options="pluginTargetOptions"
+                  @update:model-value="currentRule.target.value = $event" />
+              </label>
+
+              <label class="field">
+                <span>动作</span>
+                <FpSelect v-model="currentRule.action" :options="actionOptions" />
+              </label>
+
+              <label class="field">
+                <span>优先级</span>
+                <input class="input" type="number" min="1" step="1" v-model.number="currentRule.priority"
+                  @input="validatePriority" />
+              </label>
+
+              <label class="field switch">
+                <span>启用状态</span>
+                <div class="toggle-switch" :class="{ active: currentRule.enabled }" @click="onToggle(currentRule)">
+                  <div class="toggle-thumb" />
+                </div>
+              </label>
+            </div>
+
+            <div class="expr-wrap">
+              <div class="panel-title small">条件表达式</div>
+              <ExprEditor v-model="currentRule.condition" />
+            </div>
+
+            <div class="footer-actions">
+              <k-button @click="move(currentRule.id, -1)">上移</k-button>
+              <k-button @click="move(currentRule.id, 1)">下移</k-button>
             </div>
           </div>
-        </template>
-
-        <div class="editor-body">
-          <div class="editor-grid">
-            <label class="field">
-              <span>规则名</span>
-              <input class="input" v-model="currentRule.name" placeholder="输入规则名" />
-            </label>
-
-          <label class="field">
-            <span>目标</span>
-            <FpSelect v-model="currentRule.target.type" :options="targetTypeOptions" />
-          </label>
-
-          <label class="field" v-if="currentRule.target.type === 'plugin'">
-            <span>插件实例</span>
-            <FpSelect
-              :model-value="currentRule.target.value ?? ''"
-              :options="pluginTargetOptions"
-              @update:model-value="currentRule.target.value = $event"
-            />
-          </label>
-
-          <label class="field">
-            <span>动作</span>
-            <FpSelect v-model="currentRule.action" :options="actionOptions" />
-          </label>
-
-          <label class="field">
-            <span>优先级</span>
-            <input
-              class="input"
-              type="number"
-              min="1"
-              step="1"
-              v-model.number="currentRule.priority"
-              @input="validatePriority"
-            />
-          </label>
-
-          <label class="field switch">
-            <span>启用状态</span>
-            <div
-              class="toggle-switch"
-              :class="{ active: currentRule.enabled }"
-              @click="onToggle(currentRule)"
-            >
-              <div class="toggle-thumb" />
-            </div>
-          </label>
-        </div>
-
-        <div class="expr-wrap">
-          <div class="panel-title small">条件表达式</div>
-          <ExprEditor v-model="currentRule.condition" />
-        </div>
-
-        <div class="footer-actions">
-            <k-button @click="move(currentRule.id, -1)">上移</k-button>
-            <k-button @click="move(currentRule.id, 1)">下移</k-button>
-          </div>
-        </div>
-      </k-card>
-    </div>
+        </k-card>
+      </div>
     </div>
   </k-layout>
 </template>
@@ -135,11 +117,11 @@ type RuleExpr =
   | { type: 'group'; operator: GroupOperator; children: RuleExpr[] }
   | { type: 'not'; child: RuleExpr }
   | {
-      type: 'compare'
-      field: string
-      operator: CompareOperator
-      value?: unknown
-    }
+    type: 'compare'
+    field: string
+    operator: CompareOperator
+    value?: unknown
+  }
 
 interface RuleItem {
   id: string
@@ -289,7 +271,7 @@ async function move(id: string, offset: number) {
   const target = index + offset
   if (target < 0 || target >= list.length) return
   const reordered = [...list]
-  ;[reordered[index], reordered[target]] = [reordered[target], reordered[index]]
+    ;[reordered[index], reordered[target]] = [reordered[target], reordered[index]]
   await request(
     'filter-pro/reorder',
     reordered.map((item) => item.id)
@@ -479,6 +461,7 @@ void refresh()
 .input {
   width: 100%;
   min-width: 0;
+  height: 35px;
   box-sizing: border-box;
   color: var(--k-text-normal, inherit);
   background: var(--k-input-bg, transparent);
@@ -505,5 +488,11 @@ void refresh()
   .editor-grid {
     grid-template-columns: 1fr;
   }
+}
+</style>
+<style>
+.k-button {
+  height: 35px !important;
+  box-sizing: border-box !important;
 }
 </style>
