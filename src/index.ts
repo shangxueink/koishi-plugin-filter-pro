@@ -522,6 +522,7 @@ export function apply(ctx: Context, config: Config = {}) {
 
   const pluginResolver = createPluginResolver(ctx, trace)
   const originalFilters = new Map<any, FilterFn>()
+  const injectedFilters = new Map<any, FilterFn>()
 
   const buildVars = (session: any, extras: Record<string, unknown> = {}) => ({
     platform: String(session.platform ?? ''),
@@ -599,6 +600,15 @@ export function apply(ctx: Context, config: Config = {}) {
 
   const applyNativeFilterInjection = async () => {
     await refreshPluginTargets()
+
+    // unwrap previously injected wrappers first
+    for (const [hostCtx, wrapped] of injectedFilters.entries()) {
+      if (hostCtx?.filter !== wrapped) continue
+      const original = originalFilters.get(hostCtx)
+      if (original) hostCtx.filter = original
+    }
+    injectedFilters.clear()
+
     const forks = collectPluginForks(ctx)
     const activeKeys = new Set(
       state.rules
@@ -620,6 +630,9 @@ export function apply(ctx: Context, config: Config = {}) {
 
       if (!originalFilters.has(hostCtx)) {
         originalFilters.set(hostCtx, hostCtx.filter)
+      } else {
+        // runtime reload may rewrite base filter; keep latest base
+        originalFilters.set(hostCtx, hostCtx.filter)
       }
       const original = originalFilters.get(hostCtx)
 
@@ -628,10 +641,12 @@ export function apply(ctx: Context, config: Config = {}) {
         continue
       }
 
-      hostCtx.filter = (session: any) => {
+      const wrapped: FilterFn = (session: any) => {
         if (!original(session)) return false
         return evaluatePluginRules(pluginKey, session)
       }
+      hostCtx.filter = wrapped
+      injectedFilters.set(hostCtx, wrapped)
     }
 
     trace('native-filter:sync:done', {
@@ -641,10 +656,19 @@ export function apply(ctx: Context, config: Config = {}) {
 
   void refreshPluginTargets()
   void applyNativeFilterInjection()
-  ctx.on('ready', refreshPluginTargets)
+  ctx.on('ready', applyNativeFilterInjection)
   ctx.on('internal/fork', applyNativeFilterInjection)
+  ctx.on('internal/before-update', applyNativeFilterInjection)
   ctx.on('internal/update', applyNativeFilterInjection)
   ctx.on('internal/runtime', applyNativeFilterInjection)
+  ctx.on('dispose', () => {
+    for (const [hostCtx, wrapped] of injectedFilters.entries()) {
+      if (hostCtx?.filter !== wrapped) continue
+      const original = originalFilters.get(hostCtx)
+      if (original) hostCtx.filter = original
+    }
+    injectedFilters.clear()
+  })
   ctx.on('command-added', (command) => {
     pluginResolver.bindCommand(command)
     trace('command:added', {
