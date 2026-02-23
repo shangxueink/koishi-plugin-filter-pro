@@ -1,23 +1,13 @@
 <template>
   <k-layout>
     <div class="fp-layout">
-      <div class="fp-header">
-        <div>
-          <h2>Filter Pro</h2>
-          <p>持久化目录：<code>data/filterpro</code></p>
-        </div>
-        <div class="actions">
-          <k-button @click="createRule">新建规则</k-button>
-          <k-button @click="currentRule && saveRule(currentRule)" :disabled="!currentRule">保存</k-button>
-          <k-button @click="currentRule && removeRule(currentRule.id)" :disabled="!currentRule">删除</k-button>
-          <k-button @click="refresh">刷新</k-button>
-        </div>
-      </div>
-
       <div class="fp-main">
       <k-card class="panel list">
         <template #header>
-          <div class="panel-title">规则列表</div>
+          <div class="editor-header">
+            <div class="panel-title">规则列表</div>
+            <k-button @click="createRule">新建规则</k-button>
+          </div>
         </template>
 
         <div class="rule-list">
@@ -43,7 +33,14 @@
 
       <k-card class="panel editor" v-if="currentRule">
         <template #header>
-          <div class="panel-title">规则编辑</div>
+          <div class="editor-header">
+            <div class="panel-title">规则编辑</div>
+            <div class="actions">
+              <k-button @click="currentRule && saveRule(currentRule)" :disabled="!currentRule">保存</k-button>
+              <k-button @click="confirmRemove" :disabled="!currentRule">删除</k-button>
+              <k-button @click="refresh">刷新</k-button>
+            </div>
+          </div>
         </template>
 
         <div class="editor-body">
@@ -74,7 +71,14 @@
 
           <label class="field">
             <span>优先级</span>
-            <input class="input" type="number" v-model.number="currentRule.priority" />
+            <input
+              class="input"
+              type="number"
+              min="1"
+              step="1"
+              v-model.number="currentRule.priority"
+              @input="validatePriority"
+            />
           </label>
 
           <label class="field switch">
@@ -88,11 +92,6 @@
             </div>
           </label>
         </div>
-
-        <label class="field" v-if="currentRule.action === 'block'">
-          <span>拦截响应</span>
-          <input class="input" v-model="currentRule.response" placeholder="可选，留空则静默拦截" />
-        </label>
 
         <div class="expr-wrap">
           <div class="panel-title small">条件表达式</div>
@@ -112,7 +111,7 @@
 
 <script lang="ts" setup>
 import { computed, ref } from 'vue'
-import { send } from '@koishijs/client'
+import { send, message } from '@koishijs/client'
 import FpSelect from './components/fp-select.vue'
 import ExprEditor from './components/expr-editor.vue'
 
@@ -217,6 +216,7 @@ async function refresh() {
   ) {
     selectedId.value = sortedRules.value[0]?.id || ''
   }
+  message.success('刷新成功')
 }
 
 async function createRule() {
@@ -231,6 +231,18 @@ async function createRule() {
   })
   await refresh()
   selectedId.value = sortedRules.value.at(-1)?.id || selectedId.value
+  message.success('创建成功')
+}
+
+function validatePriority(e: Event) {
+  const input = e.target as HTMLInputElement
+  const value = Number(input.value)
+  if (value < 1 || !Number.isInteger(value)) {
+    input.value = String(Math.max(1, Math.floor(Math.abs(value)) || 1))
+    if (currentRule.value) {
+      currentRule.value.priority = Number(input.value)
+    }
+  }
 }
 
 async function onToggle(rule: RuleItem) {
@@ -255,11 +267,19 @@ async function saveRule(rule: RuleItem) {
     response: rule.response || ''
   })
   await refresh()
+  message.success('保存成功')
+}
+
+async function confirmRemove() {
+  if (!currentRule.value) return
+  if (!confirm('确定要删除这条规则吗？')) return
+  await removeRule(currentRule.value.id)
 }
 
 async function removeRule(id: string) {
   await request('filter-pro/delete', id)
   await refresh()
+  message.success('删除成功')
 }
 
 async function move(id: string, offset: number) {
@@ -295,22 +315,11 @@ void refresh()
   overflow: hidden;
 }
 
-.fp-header {
+.editor-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
-  margin-bottom: 12px;
-}
-
-.fp-header h2 {
-  margin: 0;
-  font-size: 20px;
-}
-
-.fp-header p {
-  margin: 4px 0 0;
-  color: var(--k-text-secondary, #888);
 }
 
 .actions {
