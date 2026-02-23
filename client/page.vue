@@ -4,7 +4,10 @@
       <div class="fp-main">
       <k-card class="panel list">
         <template #header>
-          <div class="panel-title">规则列表</div>
+          <div class="editor-header">
+            <div class="panel-title">规则列表</div>
+            <k-button @click="createRule">新建规则</k-button>
+          </div>
         </template>
 
         <div class="rule-list">
@@ -33,9 +36,8 @@
           <div class="editor-header">
             <div class="panel-title">规则编辑</div>
             <div class="actions">
-              <k-button @click="createRule">新建规则</k-button>
               <k-button @click="currentRule && saveRule(currentRule)" :disabled="!currentRule">保存</k-button>
-              <k-button @click="currentRule && removeRule(currentRule.id)" :disabled="!currentRule">删除</k-button>
+              <k-button @click="confirmRemove" :disabled="!currentRule">删除</k-button>
               <k-button @click="refresh">刷新</k-button>
             </div>
           </div>
@@ -248,6 +250,12 @@ async function saveRule(rule: RuleItem) {
   })
   await refresh()
   message.success('保存成功')
+}
+
+async function confirmRemove() {
+  if (!currentRule.value) return
+  if (!confirm('确定要删除这条规则吗？')) return
+  await removeRule(currentRule.value.id)
 }
 
 async function removeRule(id: string) {
