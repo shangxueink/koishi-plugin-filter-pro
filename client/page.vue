@@ -1,15 +1,6 @@
 <template>
   <k-layout>
     <div class="fp-layout">
-      <div class="fp-header">
-        <div class="actions">
-          <k-button @click="createRule">新建规则</k-button>
-          <k-button @click="currentRule && saveRule(currentRule)" :disabled="!currentRule">保存</k-button>
-          <k-button @click="currentRule && removeRule(currentRule.id)" :disabled="!currentRule">删除</k-button>
-          <k-button @click="refresh">刷新</k-button>
-        </div>
-      </div>
-
       <div class="fp-main">
       <k-card class="panel list">
         <template #header>
@@ -39,7 +30,15 @@
 
       <k-card class="panel editor" v-if="currentRule">
         <template #header>
-          <div class="panel-title">规则编辑</div>
+          <div class="editor-header">
+            <div class="panel-title">规则编辑</div>
+            <div class="actions">
+              <k-button @click="createRule">新建规则</k-button>
+              <k-button @click="currentRule && saveRule(currentRule)" :disabled="!currentRule">保存</k-button>
+              <k-button @click="currentRule && removeRule(currentRule.id)" :disabled="!currentRule">删除</k-button>
+              <k-button @click="refresh">刷新</k-button>
+            </div>
+          </div>
         </template>
 
         <div class="editor-body">
@@ -290,22 +289,11 @@ void refresh()
   overflow: hidden;
 }
 
-.fp-header {
+.editor-header {
   display: flex;
-  justify-content: flex-end;
-  align-items: flex-start;
+  justify-content: space-between;
+  align-items: center;
   gap: 12px;
-  margin-bottom: 12px;
-}
-
-.fp-header h2 {
-  margin: 0;
-  font-size: 20px;
-}
-
-.fp-header p {
-  margin: 4px 0 0;
-  color: var(--k-text-secondary, #888);
 }
 
 .actions {
