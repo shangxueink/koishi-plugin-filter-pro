@@ -1,511 +1,141 @@
 <template>
-  <div class="cf-editor">
-    <!-- 条件行 -->
-    <div class="rows-section">
-      <template v-for="(row, i) in rows" :key="row.id">
-        <!-- 连接符（第一行之后显示） -->
-        <div v-if="i > 0" class="connector-sep">
-          <button
-            class="connector-toggle"
-            :class="'conn-' + row.connector"
-            :title="'点击切换为' + (row.connector === 'or' ? '且（AND）' : '或（OR）')"
-            @click="toggleConnector(i)"
-          >
-            {{ row.connector === 'or' ? '或（OR）' : '且（AND）' }}
-          </button>
-        </div>
-
-        <!-- 条件行 -->
-        <div class="cf-row">
-          <FpSelect
-            :model-value="row.field"
-            :options="fieldSelectOptions"
-            class="sel-field"
-            @update:model-value="(v: string) => { const wasBool = row.field === 'isDirect'; row.field = v; if (v === 'isDirect') { row.value = false; row.valueText = 'false'; if (!['eq','ne','exists'].includes(row.operator)) row.operator = 'eq'; } else if (wasBool) { row.value = ''; row.valueText = ''; } emitChange() }"
-          />
-          <input
-            v-if="row.field === '__custom__'"
-            class="input custom-input"
-            v-model="row.customField"
-            @input="emitChange"
-            placeholder="字段路径，如 author.name"
-          />
-          <FpSelect
-            :model-value="row.operator"
-            :options="row.field === 'isDirect' ? boolOperatorOptions : operatorOptions"
-            class="sel-op"
-            @update:model-value="(v: string) => { row.operator = v; emitChange() }"
-          />
-          <!-- isDirect：开关 -->
-          <label v-if="row.field === 'isDirect' && row.operator !== 'exists'" class="bool-toggle">
-            <input
-              type="checkbox"
-              :checked="row.value === true"
-              @change="(e) => { row.value = (e.target as HTMLInputElement).checked; row.valueText = String(row.value); emitChange() }"
-            />
-            <span class="bool-label">{{ row.value === true ? '是（true）' : '否（false）' }}</span>
-          </label>
-          <!-- 普通文本输入 -->
-          <input
-            v-else-if="row.field !== 'isDirect' && row.operator !== 'exists'"
-            class="input val-input"
-            v-model="row.valueText"
-            @input="() => { row.value = parseValue(row.valueText); emitChange() }"
-            placeholder="比较值"
-          />
-          <button class="del-btn" :disabled="rows.length <= 1" @click="removeRow(i)" title="删除此条件">✕</button>
-        </div>
-      </template>
-    </div>
-
-    <!-- 添加条件 -->
-    <div class="add-section">
-      <template v-if="rows.length === 0">
-        <k-button @click="addRow(null)">+ 添加条件</k-button>
-      </template>
-      <template v-else>
-        <k-button @click="addRow('and')">且（AND）</k-button>
-        <k-button @click="addRow('or')">或（OR）</k-button>
-      </template>
-    </div>
-
-    <!-- 表达式预览 -->
+  <div class="expr-editor">
+    <ExprNode :node="root" :path="[]" @update="(e) => updateNode(e.path, e.updates)" @remove="removeNode" />
     <div class="preview-section">
       <div class="preview-title">表达式预览</div>
-      <code class="preview-code">{{ previewText || '（空）' }}</code>
+      <code class="preview-code">{{ previewText || '（条件为空，此条规则视为无效/关闭）' }}</code>
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { computed, ref, watch } from 'vue'
-import FpSelect from './fp-select.vue'
+import { ref, computed, watch } from 'vue'
+import ExprNode from './expr-node.vue'
 
 defineOptions({ name: 'ExprEditor' })
 
 type GroupOperator = 'and' | 'or'
-type CompareOperator =
-  | 'eq'
-  | 'ne'
-  | 'includes'
-  | 'regex'
-  | 'gt'
-  | 'gte'
-  | 'lt'
-  | 'lte'
-  | 'exists'
+type CompareOperator = 'eq' | 'ne' | 'includes' | 'regex' | 'gt' | 'gte' | 'lt' | 'lte' | 'exists'
 
 type RuleExpr =
   | { type: 'group'; operator: GroupOperator; children: RuleExpr[] }
   | { type: 'not'; child: RuleExpr }
-  | {
-      type: 'compare'
-      field: string
-      operator: CompareOperator
-      value?: unknown
-    }
+  | { type: 'compare'; field: string; operator: CompareOperator; value?: unknown }
 
-interface FlatRow {
+interface TreeNode {
   id: string
-  field: string
-  customField: string
-  operator: string
-  valueText: string
-  value: unknown
-  connector: 'and' | 'or' | null // null = 第一行
-}
-
-let _idCtr = 0
-const newId = () => String(++_idCtr)
-
-const fieldOptions = [
-  { value: 'guildId', label: '群组 ID（guildId）' },
-  { value: 'channelId', label: '频道 ID（channelId）' },
-  { value: 'userId', label: '用户 ID（userId）' },
-  { value: 'platform', label: '平台（platform）' },
-  { value: 'content', label: '消息内容（content）' },
-  { value: 'isDirect', label: '私聊（isDirect）' },
-  { value: 'type', label: '消息类型（type）' }
-]
-
-const fieldSelectOptions = [
-  ...fieldOptions,
-  { value: '__custom__', label: '自定义字段...' }
-]
-
-const operatorOptions = [
-  { value: 'eq', label: '等于' },
-  { value: 'ne', label: '不等于' },
-  { value: 'includes', label: '包含' },
-  { value: 'regex', label: '正则匹配' },
-  { value: 'gt', label: '大于' },
-  { value: 'gte', label: '大于等于' },
-  { value: 'lt', label: '小于' },
-  { value: 'lte', label: '小于等于' },
-  { value: 'exists', label: '存在' }
-]
-
-const boolOperatorOptions = [
-  { value: 'eq', label: '等于' },
-  { value: 'ne', label: '不等于' },
-  { value: 'exists', label: '存在' }
-]
-
-const opSymbols: Record<string, string> = {
-  eq: 'eq',
-  ne: 'ne',
-  includes: 'contains',
-  regex: 'matches',
-  gt: 'gt',
-  gte: 'gte',
-  lt: 'lt',
-  lte: 'lte',
-  exists: 'exists'
+  type: 'group' | 'compare'
+  operator?: string
+  field?: string
+  value?: unknown
+  children?: TreeNode[]
 }
 
 const props = defineProps<{ modelValue: RuleExpr }>()
 const emit = defineEmits<(e: 'update:modelValue', value: RuleExpr) => void>()
 
-const rows = ref<FlatRow[]>(toFlat(props.modelValue))
+let idCounter = 0
+const newId = () => `node-${++idCounter}`
 
-// 用于避免 watch 和 emit 互相触发死循环
-let lastEmittedJson = JSON.stringify(props.modelValue)
-
-watch(
-  () => props.modelValue,
-  (val) => {
-    const j = JSON.stringify(val)
-    if (j === lastEmittedJson) return
-    lastEmittedJson = j
-    rows.value = toFlat(val)
-  },
-  { deep: true }
-)
-
-// ── 转换：RuleExpr → FlatRow[] ─────────────────────────────────────────────
-
-function makeDefaultRow(
-  connector: 'and' | 'or' | null,
-  field = 'guildId'
-): FlatRow {
-  const isBool = field === 'isDirect'
-  return {
-    id: newId(),
-    field,
-    customField: '',
-    operator: 'eq',
-    valueText: isBool ? 'false' : '',
-    value: isBool ? false : '',
-    connector
-  }
-}
-
-function rowFromCompare(
-  c: { field: string; operator: string; value?: unknown },
-  connector: 'and' | 'or' | null
-): FlatRow {
-  const known = fieldOptions.some((f) => f.value === c.field)
-  const field = known ? c.field : '__custom__'
-  // isDirect 默认为 false（boolean），其他默认空字符串
-  const defaultVal = field === 'isDirect' ? false : ''
-  const rawVal = c.value ?? defaultVal
-  return {
-    id: newId(),
-    field,
-    customField: known ? '' : c.field,
-    operator: c.operator,
-    valueText: rawVal === undefined || rawVal === null ? '' : String(rawVal),
-    value: rawVal,
-    connector
-  }
-}
-
-function toFlat(expr: RuleExpr): FlatRow[] {
-  if (!expr) return [makeDefaultRow(null)]
-
+// 转换 RuleExpr 到 TreeNode
+function toTree(expr: RuleExpr): TreeNode {
   if (expr.type === 'compare') {
-    return [rowFromCompare(expr, null)]
+    return {
+      id: newId(),
+      type: 'compare',
+      field: expr.field,
+      operator: expr.operator,
+      value: expr.value
+    }
   }
-
   if (expr.type === 'group') {
-    // 全部子节点都是 compare：直接扁平化
-    if (expr.children.every((c) => c.type === 'compare')) {
-      return expr.children.map((c, i) =>
-        rowFromCompare(c as any, i === 0 ? null : expr.operator)
-      )
-    }
-
-    // OR(AND(...), AND(...), ...)：混合连接符
-    if (expr.operator === 'or') {
-      const result: FlatRow[] = []
-      let first = true
-      for (const child of expr.children) {
-        if (child.type === 'compare') {
-          result.push(rowFromCompare(child, first ? null : 'or'))
-          first = false
-        } else if (child.type === 'group' && child.operator === 'and') {
-          child.children.forEach((c, ci) => {
-            if (c.type === 'compare') {
-              result.push(
-                rowFromCompare(c as any, first ? null : ci === 0 ? 'or' : 'and')
-              )
-              first = false
-            }
-          })
-        }
-      }
-      if (result.length > 0) return result
+    return {
+      id: newId(),
+      type: 'group',
+      operator: expr.operator,
+      children: expr.children.map(toTree)
     }
   }
-
-  return [makeDefaultRow(null)]
+  return { id: newId(), type: 'compare', field: 'guildId', operator: 'eq', value: '' }
 }
 
-// ── 转换：FlatRow[] → RuleExpr ─────────────────────────────────────────────
+// 转换 TreeNode 到 RuleExpr
+function fromTree(node: TreeNode): RuleExpr {
+  if (node.type === 'compare') {
+    return {
+      type: 'compare',
+      field: node.field || 'guildId',
+      operator: (node.operator || 'eq') as CompareOperator,
+      value: node.operator === 'exists' ? undefined : node.value
+    }
+  }
+  if (node.type === 'group' && node.children) {
+    return {
+      type: 'group',
+      operator: (node.operator || 'and') as GroupOperator,
+      children: node.children.map(fromTree)
+    }
+  }
+  return { type: 'compare', field: 'guildId', operator: 'eq', value: '' }
+}
 
-function rowToCompare(row: FlatRow): RuleExpr {
-  const field =
-    row.field === '__custom__'
-      ? (row.customField || '').trim() || 'guildId'
-      : row.field
-  return {
-    type: 'compare',
-    field,
-    operator: row.operator as CompareOperator,
-    value: row.operator === 'exists' ? undefined : row.value
+const root = ref<TreeNode>(toTree(props.modelValue))
+
+watch(() => props.modelValue, (val) => {
+  root.value = toTree(val)
+}, { deep: true })
+
+function updateNode(path: number[], updates: Partial<TreeNode>) {
+  const node = getNodeByPath(root.value, path)
+  if (node) Object.assign(node, updates)
+  emitChange()
+}
+
+function removeNode(path: number[]) {
+  if (path.length === 0) return
+  const parentPath = path.slice(0, -1)
+  const parent = getNodeByPath(root.value, parentPath) as TreeNode
+  if (parent?.children) {
+    parent.children.splice(path[path.length - 1], 1)
+    emitChange()
   }
 }
 
-function fromFlat(flatRows: FlatRow[]): RuleExpr {
-  if (flatRows.length === 0)
-    return { type: 'compare', field: 'guildId', operator: 'eq', value: '' }
-  if (flatRows.length === 1) return rowToCompare(flatRows[0])
-
-  // 按 OR 分割成 AND 组
-  const orGroups: FlatRow[][] = []
-  let cur: FlatRow[] = [flatRows[0]]
-  for (let i = 1; i < flatRows.length; i++) {
-    if (flatRows[i].connector === 'or') {
-      orGroups.push(cur)
-      cur = [flatRows[i]]
-    } else cur.push(flatRows[i])
-  }
-  orGroups.push(cur)
-
-  const groupExprs: RuleExpr[] = orGroups.map((grp) => {
-    if (grp.length === 1) return rowToCompare(grp[0])
-    return { type: 'group', operator: 'and', children: grp.map(rowToCompare) }
-  })
-
-  if (groupExprs.length === 1) return groupExprs[0]
-  return { type: 'group', operator: 'or', children: groupExprs }
+function getNodeByPath(node: TreeNode, path: number[]): TreeNode | null {
+  if (path.length === 0) return node
+  if (!node.children) return null
+  const child = node.children[path[0]]
+  return child ? getNodeByPath(child, path.slice(1)) : null
 }
 
-// ── 表达式预览 ──────────────────────────────────────────────────────────────
+function emitChange() {
+  emit('update:modelValue', fromTree(root.value))
+}
 
+// 预览
 function buildPreview(expr: RuleExpr): string {
   if (expr.type === 'compare') {
-    const sym = opSymbols[expr.operator] || expr.operator
     const val = expr.value === undefined ? '' : JSON.stringify(expr.value)
-    return `(${expr.field} ${sym} ${val})`
+    return `(${expr.field} ${expr.operator} ${val})`
   }
   if (expr.type === 'group') {
     const sep = expr.operator === 'and' ? ' AND ' : ' OR '
-    return expr.children.map(buildPreview).join(sep)
+    const inner = expr.children.map(buildPreview).join(sep)
+    return expr.children.length > 1 ? `(${inner})` : inner
   }
-  if (expr.type === 'not') return `NOT (${buildPreview(expr.child)})`
   return ''
 }
 
-const previewText = computed(() => buildPreview(fromFlat(rows.value)))
-
-// ── 操作 ───────────────────────────────────────────────────────────────────
-
-function emitChange() {
-  const expr = fromFlat(rows.value)
-  lastEmittedJson = JSON.stringify(expr)
-  emit('update:modelValue', expr)
-}
-
-function addRow(connector: 'and' | 'or' | null) {
-  rows.value.push(makeDefaultRow(connector ?? 'and'))
-  emitChange()
-}
-
-function removeRow(i: number) {
-  if (rows.value.length <= 1) return
-  rows.value.splice(i, 1)
-  if (i === 0) rows.value[0].connector = null
-  emitChange()
-}
-
-function toggleConnector(i: number) {
-  if (i <= 0) return
-  rows.value[i].connector = rows.value[i].connector === 'or' ? 'and' : 'or'
-  emitChange()
-}
-
-function parseValue(text: string): unknown {
-  const t = text.trim()
-  if (!t) return ''
-  if (t === 'true') return true
-  if (t === 'false') return false
-  if (t === 'null') return null
-  const n = Number(t)
-  if (Number.isFinite(n)) return n
-  return text
-}
+const previewText = computed(() => buildPreview(fromTree(root.value)))
 </script>
 
 <style scoped>
-.cf-editor {
+.expr-editor {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
-/* ── 连接符 ── */
-.connector-sep {
-  display: flex;
-  align-items: center;
-  padding: 2px 0;
-}
-
-.connector-toggle {
-  font-size: 12px;
-  font-weight: 700;
-  padding: 2px 12px;
-  border-radius: 4px;
-  border: 1px solid var(--k-card-border, rgba(127, 127, 127, 0.4));
-  cursor: pointer;
-  background: var(--k-input-bg, transparent);
-  color: var(--k-text-normal, inherit);
-  letter-spacing: 0.04em;
-  transition: opacity 0.15s;
-}
-
-.connector-toggle:hover { opacity: 0.75; }
-
-.connector-toggle.conn-and {
-  border-color: var(--k-color-primary, #4f7cff);
-  color: var(--k-color-primary, #4f7cff);
-}
-
-.connector-toggle.conn-or {
-  border-color: #e67e22;
-  color: #e67e22;
-}
-
-/* ── 条件行 ── */
-.cf-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 8px 10px;
-  border: 1px solid var(--k-card-border, rgba(127, 127, 127, 0.35));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--k-card-bg, #1a1a1a) 60%, transparent);
-}
-
-.sel-field { min-width: 168px; }
-.sel-op    { min-width: 110px; }
-
-.val-input,
-.custom-input {
-  flex: 1;
-  min-width: 120px;
-  color: var(--k-text-normal, inherit);
-  background: var(--k-input-bg, transparent);
-  border: 1px solid var(--k-card-border, rgba(127, 127, 127, 0.35));
-  border-radius: 6px;
-  padding: 5px 10px;
-  font-size: 14px;
-}
-
-/* ── 布尔开关 ── */
-.bool-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  flex: 1;
-  min-width: 120px;
-}
-
-.bool-toggle input[type='checkbox'] {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 36px;
-  height: 20px;
-  border-radius: 999px;
-  background: var(--k-card-border, rgba(127,127,127,0.4));
-  position: relative;
-  cursor: pointer;
-  transition: background 0.2s;
-  flex-shrink: 0;
-}
-
-.bool-toggle input[type='checkbox']::after {
-  content: '';
-  position: absolute;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #fff;
-  top: 3px;
-  left: 3px;
-  transition: left 0.2s;
-}
-
-.bool-toggle input[type='checkbox']:checked {
-  background: var(--k-color-primary, #4f7cff);
-}
-
-.bool-toggle input[type='checkbox']:checked::after {
-  left: 19px;
-}
-
-.bool-label {
-  font-size: 13px;
-  color: var(--k-text-normal, inherit);
-  user-select: none;
-}
-
-.del-btn {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--k-text-secondary, #888);
-  cursor: pointer;
-  font-size: 14px;
-  margin-left: auto;
-  transition: color 0.15s, background 0.15s;
-}
-
-.del-btn:hover {
-  color: #e74c3c;
-  background: color-mix(in srgb, #e74c3c 15%, transparent);
-}
-
-.del-btn:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
-/* ── 添加按钮 ── */
-.add-section {
-  display: flex;
-  gap: 8px;
-}
-
-/* ── 表达式预览 ── */
 .preview-section {
   border-top: 1px solid var(--k-card-border, rgba(127, 127, 127, 0.2));
   padding-top: 10px;
