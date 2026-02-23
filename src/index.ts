@@ -514,6 +514,9 @@ export function apply(ctx: Context, config: Config = {}) {
 
   const trace = (stage: string, payload: Record<string, unknown>) => {
     if (!debug) return
+    // Native-filter mode: keep only native filter hit logs.
+    if (stage !== 'native-filter:evaluate') return
+    if (!payload?.matched) return
     logger.info('[trace:%s] %s', stage, JSON.stringify(payload))
   }
 
@@ -618,7 +621,7 @@ export function apply(ctx: Context, config: Config = {}) {
       if (!originalFilters.has(hostCtx)) {
         originalFilters.set(hostCtx, hostCtx.filter)
       }
-      const original = originalFilters.get(hostCtx)!
+      const original = originalFilters.get(hostCtx)
 
       if (!activeKeys.has(pluginKey)) {
         hostCtx.filter = original
