@@ -103,7 +103,7 @@
 
 <script lang="ts" setup>
 import { computed, ref } from 'vue'
-import { send } from '@koishijs/client'
+import { send, message } from '@koishijs/client'
 import FpSelect from './components/fp-select.vue'
 import ExprEditor from './components/expr-editor.vue'
 
@@ -208,6 +208,7 @@ async function refresh() {
   ) {
     selectedId.value = sortedRules.value[0]?.id || ''
   }
+  message.success('刷新成功')
 }
 
 async function createRule() {
@@ -222,6 +223,7 @@ async function createRule() {
   })
   await refresh()
   selectedId.value = sortedRules.value.at(-1)?.id || selectedId.value
+  message.success('创建成功')
 }
 
 async function onToggle(rule: RuleItem) {
@@ -246,11 +248,13 @@ async function saveRule(rule: RuleItem) {
     response: rule.response || ''
   })
   await refresh()
+  message.success('保存成功')
 }
 
 async function removeRule(id: string) {
   await request('filter-pro/delete', id)
   await refresh()
+  message.success('删除成功')
 }
 
 async function move(id: string, offset: number) {
@@ -288,7 +292,7 @@ void refresh()
 
 .fp-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: flex-start;
   gap: 12px;
   margin-bottom: 12px;
