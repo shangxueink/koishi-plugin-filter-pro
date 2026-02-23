@@ -42,7 +42,7 @@
         v-if="node.operator !== 'exists'"
         class="input val-input"
         :value="String(node.value ?? '')"
-        @input="updateValue"
+        @change="updateValue"
         placeholder="比较值"
       />
       <div class="node-actions">
