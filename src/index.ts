@@ -469,7 +469,7 @@ function evaluateCompare(left: unknown, expr: CompareExpr): boolean {
 
 function evaluateExpr(expr: RuleExpr, vars: Record<string, unknown>): boolean {
   if (expr.type === 'group') {
-    if (!expr.children.length) return false
+    if (!expr.children.length) return true
     if (expr.operator === 'and')
       return expr.children.every((child) => evaluateExpr(child, vars))
     return expr.children.some((child) => evaluateExpr(child, vars))
