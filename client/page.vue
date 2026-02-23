@@ -2,10 +2,6 @@
   <k-layout>
     <div class="fp-layout">
       <div class="fp-header">
-        <div>
-          <h2>Filter Pro</h2>
-          <p>持久化目录：<code>data/filterpro</code></p>
-        </div>
         <div class="actions">
           <k-button @click="createRule">新建规则</k-button>
           <k-button @click="currentRule && saveRule(currentRule)" :disabled="!currentRule">保存</k-button>
@@ -74,7 +70,7 @@
 
           <label class="field">
             <span>优先级</span>
-            <input class="input" type="number" v-model.number="currentRule.priority" />
+            <input class="input" type="number" min="1" step="1" v-model.number="currentRule.priority" />
           </label>
 
           <label class="field switch">
@@ -88,11 +84,6 @@
             </div>
           </label>
         </div>
-
-        <label class="field" v-if="currentRule.action === 'block'">
-          <span>拦截响应</span>
-          <input class="input" v-model="currentRule.response" placeholder="可选，留空则静默拦截" />
-        </label>
 
         <div class="expr-wrap">
           <div class="panel-title small">条件表达式</div>

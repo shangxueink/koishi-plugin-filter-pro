@@ -4,6 +4,8 @@ import { resolve, join } from 'node:path'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 
 export const name = 'filter-pro'
+export const reusable = true
+export const filter = false
 
 export type RuleAction = 'bypass' | 'block'
 export type GroupOperator = 'and' | 'or'
@@ -253,6 +255,9 @@ function collectPluginTargets(ctx: Context): PluginTargetOption[] {
     for (const [fullKey, fork] of Object.entries(record)) {
       const key = String(fullKey).replace(/^~/, '')
       const [name, ident = ''] = key.split(':', 2)
+      // 检查插件是否声明了 filter = false
+      const plugin = (fork as any)?.runtime?.plugin
+      if (plugin?.filter === false) continue
       if (name && name !== 'group' && !dedup.has(key)) {
         dedup.add(key)
         result.push({
