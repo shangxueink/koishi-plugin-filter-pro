@@ -19,11 +19,11 @@ export type CompareOperator =
   | 'lt'
   | 'lte'
   | 'exists'
-export type TargetType = 'global' | 'plugin'
+export type TargetType = 'global' | 'plugin' | 'command'
 
 export interface RuleTarget {
   type: TargetType
-  value?: string
+  value?: string | string[] // 支持单个或多个插件/指令
 }
 
 export interface GroupExpr {
@@ -93,6 +93,11 @@ interface PluginTargetOption {
   label: string
 }
 
+interface CommandOption {
+  name: string
+  label: string
+}
+
 const kRecord = Symbol.for('koishi.loader.record')
 
 declare module '@koishijs/plugin-console' {
@@ -104,6 +109,7 @@ declare module '@koishijs/plugin-console' {
     interface Events {
       'filter-pro/list': () => Awaitable<RuleItem[]>
       'filter-pro/targets': () => Awaitable<PluginTargetOption[]>
+      'filter-pro/commands': () => Awaitable<CommandOption[]>
       'filter-pro/create': (input: RuleInput) => Awaitable<RuleItem>
       'filter-pro/update': (input: RuleInput) => Awaitable<RuleItem | null>
       'filter-pro/delete': (id: string) => Awaitable<boolean>
@@ -212,13 +218,27 @@ function normalizeExpr(input: unknown): RuleExpr {
 
 function normalizeRule(input: RuleInput): RuleItem {
   const rawTarget = input.target || { type: 'global' as const }
-  const rawValue =
-    typeof rawTarget.value === 'string' ? rawTarget.value.trim() : ''
-  const normalizedValue = rawTarget.type === 'plugin' ? rawValue : ''
+  let normalizedValue: string | string[] | undefined
+
+  // 处理不同目标类型的值
+  if (rawTarget.type === 'global') {
+    normalizedValue = ''
+  } else if (rawTarget.type === 'plugin' || rawTarget.type === 'command') {
+    // 支持数组或单个字符串
+    if (Array.isArray(rawTarget.value)) {
+      normalizedValue = rawTarget.value.filter(v => typeof v === 'string' && v.trim()).map(v => v.trim())
+    } else if (typeof rawTarget.value === 'string') {
+      normalizedValue = rawTarget.value.trim() ? [rawTarget.value.trim()] : []
+    } else {
+      normalizedValue = []
+    }
+  }
+
   const target: RuleTarget = {
-    type: rawTarget.type === 'plugin' ? 'plugin' : 'global',
+    type: rawTarget.type === 'command' ? 'command' : rawTarget.type === 'plugin' ? 'plugin' : 'global',
     value: normalizedValue
   }
+
   return {
     id: input.id || Random.id(8),
     name: input.name || 'new-rule',
@@ -236,10 +256,32 @@ function matchTarget(
   vars: Record<string, unknown>
 ): boolean {
   if (!target || target.type === 'global') return true
-  const pluginKey = typeof vars.pluginKey === 'string' ? vars.pluginKey : ''
-  const value = target.value?.trim()
-  if (!value) return false
-  return pluginKey === value
+
+  // 插件目标匹配
+  if (target.type === 'plugin') {
+    const pluginKey = typeof vars.pluginKey === 'string' ? vars.pluginKey : ''
+    if (!pluginKey) return false
+
+    if (Array.isArray(target.value)) {
+      return target.value.length > 0 && target.value.includes(pluginKey)
+    }
+    const value = typeof target.value === 'string' ? target.value.trim() : ''
+    return value && pluginKey === value
+  }
+
+  // 指令目标匹配
+  if (target.type === 'command') {
+    const commandName = typeof vars.commandName === 'string' ? vars.commandName : ''
+    if (!commandName) return false
+
+    if (Array.isArray(target.value)) {
+      return target.value.length > 0 && target.value.includes(commandName)
+    }
+    const value = typeof target.value === 'string' ? target.value.trim() : ''
+    return value && commandName === value
+  }
+
+  return false
 }
 
 function collectPluginTargets(ctx: Context): PluginTargetOption[] {
@@ -429,36 +471,58 @@ function normalizeScalar(value: unknown): unknown {
   return String(value)
 }
 
+// 解析逗号分割的多值（支持全角、半角逗号）
+function parseMultiValue(value: unknown): unknown[] {
+  if (typeof value !== 'string') return [value]
+  // 使用全角、半角逗号分割
+  const parts = value.split(/[,，]/).map(v => v.trim()).filter(v => v)
+  return parts.length > 1 ? parts : [value]
+}
+
 function evaluateCompare(left: unknown, expr: CompareExpr): boolean {
   if (expr.operator === 'exists') {
     return left !== undefined && left !== null
   }
   const right = expr.value
   const leftNorm = normalizeScalar(left)
-  const rightNorm = normalizeScalar(right)
+
+  // 处理数组表达式：支持逗号分割的多值比较
+  const rightValues = parseMultiValue(right)
+
   if (expr.operator === 'eq') {
-    return leftNorm === rightNorm
+    // 等于：左值等于右值数组中的任意一个
+    return rightValues.some(rv => leftNorm === normalizeScalar(rv))
   }
   if (expr.operator === 'ne') {
-    return leftNorm !== rightNorm
+    // 不等于：左值不等于右值数组中的所有值
+    return rightValues.every(rv => leftNorm !== normalizeScalar(rv))
   }
   if (expr.operator === 'includes') {
-    if (typeof leftNorm === 'string')
-      return leftNorm.includes(String(rightNorm ?? ''))
-    if (Array.isArray(left))
-      return left.map((item) => normalizeScalar(item)).includes(rightNorm)
+    if (typeof leftNorm === 'string') {
+      // 包含：左值包含右值数组中的任意一个
+      return rightValues.some(rv => leftNorm.includes(String(normalizeScalar(rv) ?? '')))
+    }
+    if (Array.isArray(left)) {
+      const leftNormArray = left.map((item) => normalizeScalar(item))
+      // 数组包含：左数组包含右值数组中的任意一个
+      return rightValues.some(rv => leftNormArray.includes(normalizeScalar(rv)))
+    }
     return false
   }
   if (expr.operator === 'regex') {
     if (typeof leftNorm !== 'string') return false
     try {
-      return new RegExp(String(rightNorm ?? '')).test(leftNorm)
+      // 正则匹配：使用第一个值作为正则表达式
+      return new RegExp(String(normalizeScalar(rightValues[0]) ?? '')).test(leftNorm)
     } catch {
       return false
     }
   }
+
+  // 数值比较：使用第一个值
+  const rightNorm = normalizeScalar(rightValues[0])
   const ln = coerceNumber(left)
-  const rn = coerceNumber(right)
+  const rn = coerceNumber(rightNorm)
   if (ln === null || rn === null) return false
   if (expr.operator === 'gt') return ln > rn
   if (expr.operator === 'gte') return ln >= rn
@@ -549,7 +613,17 @@ export function apply(ctx: Context, config: Config = {}) {
     for (const rule of sortRules(state.rules)) {
       if (!rule.enabled) continue
       if (rule.target.type !== 'plugin') continue
-      if ((rule.target.value || '').trim() !== pluginKey) continue
+
+      // 检查插件是否匹配（支持数组）
+      let pluginMatched = false
+      if (Array.isArray(rule.target.value)) {
+        pluginMatched = rule.target.value.includes(pluginKey)
+      } else if (typeof rule.target.value === 'string') {
+        pluginMatched = rule.target.value.trim() === pluginKey
+      }
+
+      if (!pluginMatched) continue
+
       const matched = evaluateExpr(rule.condition, vars)
       trace('native-filter:evaluate', {
         pluginKey,
@@ -615,14 +689,19 @@ export function apply(ctx: Context, config: Config = {}) {
     injectedFilters.clear()
 
     const forks = collectPluginForks(ctx)
-    const activeKeys = new Set(
-      state.rules
-        .filter(
-          (rule) =>
-            rule.enabled && rule.target.type === 'plugin' && !!rule.target.value
-        )
-        .map((rule) => (rule.target.value || '').trim())
-    )
+    const activeKeys = new Set<string>()
+
+    // 收集所有启用的插件规则的插件键
+    for (const rule of state.rules) {
+      if (!rule.enabled || rule.target.type !== 'plugin' || !rule.target.value) continue
+
+      if (Array.isArray(rule.target.value)) {
+        rule.target.value.forEach(key => activeKeys.add(key))
+      } else if (typeof rule.target.value === 'string') {
+        const trimmed = rule.target.value.trim()
+        if (trimmed) activeKeys.add(trimmed)
+      }
+    }
 
     trace('native-filter:sync:start', {
       activeTargetCount: activeKeys.size,
@@ -746,11 +825,13 @@ export function apply(ctx: Context, config: Config = {}) {
     return next()
   }, true)
 
+  // 指令级拦截：仅对 target.type === 'command' 的规则生效
   ctx.before('command/execute', async (argv) => {
     await ready
     const plugin = pluginResolver.resolveByCommand(argv.command)
+    const commandName = String(argv.command.name ?? '')
     const vars: Record<string, unknown> = buildVars(argv.session, {
-      commandName: String(argv.command.name ?? ''),
+      commandName,
       pluginKey: plugin?.key,
       pluginName: plugin?.name
     })
@@ -765,8 +846,46 @@ export function apply(ctx: Context, config: Config = {}) {
       ruleCount: state.rules.length
     })
 
+    // 检查指令级规则
+    for (const rule of sortRules(state.rules)) {
+      if (!rule.enabled) continue
+      if (rule.target.type !== 'command') continue
+      if (!matchTarget(rule.target, vars)) continue
+
+      const matched = evaluateExpr(rule.condition, vars)
+      trace('command:evaluate', {
+        ruleId: rule.id,
+        ruleName: rule.name,
+        action: rule.action,
+        matched,
+        commandName
+      })
+
+      if (!matched) continue
+
+      if (rule.action === 'bypass') {
+        trace('command:action', {
+          ruleId: rule.id,
+          action: 'bypass'
+        })
+        return
+      }
+
+      // 拦截指令
+      trace('command:action', {
+        ruleId: rule.id,
+        action: 'block',
+        response: rule.response || ''
+      })
+
+      if (rule.response) {
+        await argv.session.send(rule.response)
+      }
+      return ''
+    }
+
     trace('command:pass', {
-      reason: 'native-filter-mode'
+      reason: 'no-command-rule-matched'
     })
   })
 
@@ -800,6 +919,19 @@ export function apply(ctx: Context, config: Config = {}) {
       async () => {
         await refreshPluginTargets()
         return pluginResolver.list()
+      },
+      { authority }
+    )
+
+    // 获取指令列表
+    addListener(
+      'filter-pro/commands',
+      async () => {
+        const commands = (ctx as any)?.$commander?._commandList || []
+        return commands.map((cmd: any) => ({
+          name: String(cmd.name ?? ''),
+          label: String(cmd.name ?? '')
+        }))
       },
       { authority }
     )

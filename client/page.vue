@@ -19,7 +19,7 @@
               </div>
               <div class="meta">
                 <span>#{{ rule.priority }}</span>
-                <span>{{ rule.target.type === 'global' ? '全局' : rule.target.value || '未指定插件' }}</span>
+                <span>{{ getTargetDisplay(rule.target) }}</span>
                 <span>{{ rule.enabled ? '启用' : '停用' }}</span>
               </div>
             </button>
@@ -50,10 +50,26 @@
                 <FpSelect v-model="currentRule.target.type" :options="targetTypeOptions" />
               </label>
 
+              <!-- 插件多选 -->
               <label class="field" v-if="currentRule.target.type === 'plugin'">
                 <span>插件实例</span>
-                <FpSelect :model-value="currentRule.target.value ?? ''" :options="pluginTargetOptions"
-                  @update:model-value="currentRule.target.value = $event" />
+                <PluginSelector
+                  mode="plugin"
+                  :model-value="Array.isArray(currentRule.target.value) ? currentRule.target.value : (currentRule.target.value ? [currentRule.target.value] : [])"
+                  :options="pluginTargets"
+                  @update:model-value="currentRule.target.value = $event"
+                />
+              </label>
+
+              <!-- 指令多选 -->
+              <label class="field" v-if="currentRule.target.type === 'command'">
+                <span>作用指令</span>
+                <PluginSelector
+                  mode="command"
+                  :model-value="Array.isArray(currentRule.target.value) ? currentRule.target.value : (currentRule.target.value ? [currentRule.target.value] : [])"
+                  :options="commandList.map(c => ({ key: c.name, name: c.name, ident: '', label: c.label }))"
+                  @update:model-value="currentRule.target.value = $event"
+                />
               </label>
 
               <label class="field">
@@ -106,10 +122,11 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { send, message } from '@koishijs/client'
 import FpSelect from './components/fp-select.vue'
 import ExprEditor from './components/expr-editor.vue'
+import PluginSelector from './components/plugin-selector.vue'
 
 const request = send as any
 
@@ -125,7 +142,7 @@ type CompareOperator =
   | 'lt'
   | 'lte'
   | 'exists'
-type TargetType = 'global' | 'plugin'
+type TargetType = 'global' | 'plugin' | 'command'
 
 type RuleExpr =
   | { type: 'group'; operator: GroupOperator; children: RuleExpr[] }
@@ -145,7 +162,7 @@ interface RuleItem {
   action: RuleAction
   target: {
     type: TargetType
-    value?: string
+    value?: string | string[]
   }
   condition: RuleExpr
   response?: string
@@ -158,6 +175,11 @@ interface PluginTargetOption {
   label: string
 }
 
+interface CommandOption {
+  name: string
+  label: string
+}
+
 const actionLabel: Record<RuleAction, string> = {
   bypass: '放行',
   block: '拦截'
@@ -165,7 +187,8 @@ const actionLabel: Record<RuleAction, string> = {
 
 const targetTypeOptions = [
   { label: '全局', value: 'global' },
-  { label: '插件', value: 'plugin' }
+  { label: '插件', value: 'plugin' },
+  { label: '指令', value: 'command' }
 ]
 
 const actionOptions = [
@@ -180,7 +203,9 @@ const pluginTargetOptions = computed(() => [
 
 const rules = ref<RuleItem[]>([])
 const pluginTargets = ref<PluginTargetOption[]>([])
+const commandList = ref<CommandOption[]>([])
 const selectedId = ref('')
+const showDeleteConfirm = ref(false)
 
 const sortedRules = computed(() =>
   [...rules.value].sort(
@@ -191,6 +216,31 @@ const currentRule = computed(() =>
   sortedRules.value.find((item) => item.id === selectedId.value)
 )
 
+// 获取目标显示文本
+function getTargetDisplay(target: { type: TargetType; value?: string | string[] }): string {
+  if (target.type === 'global') return '全局'
+  if (target.type === 'plugin') {
+    if (Array.isArray(target.value)) {
+      return target.value.length > 0 ? `插件 (${target.value.length})` : '未指定插件'
+    }
+    return target.value || '未指定插件'
+  }
+  if (target.type === 'command') {
+    if (Array.isArray(target.value)) {
+      return target.value.length > 0 ? `指令 (${target.value.length})` : '未指定指令'
+    }
+    return target.value || '未指定指令'
+  }
+  return '未知'
+}
+
+// 监听目标类型变化，清空已选值
+watch(() => currentRule.value?.target.type, (newType, oldType) => {
+  if (newType && oldType && newType !== oldType && currentRule.value) {
+    currentRule.value.target.value = newType === 'global' ? '' : []
+  }
+})
+
 function defaultExpr(): RuleExpr {
   return {
     type: 'group',
@@ -200,11 +250,13 @@ function defaultExpr(): RuleExpr {
 }
 
 async function refresh() {
-  const [data, targets] = await Promise.all([
+  const [data, targets, commands] = await Promise.all([
     request('filter-pro/list') as Promise<RuleItem[]>,
-    request('filter-pro/targets') as Promise<PluginTargetOption[]>
+    request('filter-pro/targets') as Promise<PluginTargetOption[]>,
+    request('filter-pro/commands') as Promise<CommandOption[]>
   ])
   pluginTargets.value = targets
+  commandList.value = commands
   rules.value = data
   if (
     !selectedId.value ||
@@ -247,10 +299,17 @@ async function onToggle(rule: RuleItem) {
 }
 
 async function saveRule(rule: RuleItem) {
-  const target =
-    rule.target.type === 'global'
-      ? { type: 'global' as const, value: '' }
-      : { type: 'plugin' as const, value: rule.target.value || '' }
+  let target: { type: TargetType; value?: string | string[] }
+
+  if (rule.target.type === 'global') {
+    target = { type: 'global', value: '' }
+  } else if (rule.target.type === 'plugin') {
+    // 插件多选：保存为数组
+    target = { type: 'plugin', value: rule.target.value || [] }
+  } else {
+    // 指令多选：保存为数组
+    target = { type: 'command', value: rule.target.value || [] }
+  }
 
   await request('filter-pro/update', {
     id: rule.id,
@@ -265,8 +324,6 @@ async function saveRule(rule: RuleItem) {
   await refresh()
   message.success('保存成功')
 }
-
-const showDeleteConfirm = ref(false)
 
 async function confirmRemove() {
   if (!currentRule.value) return
