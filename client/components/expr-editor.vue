@@ -27,7 +27,7 @@
                 if (!['eq', 'ne', 'exists'].includes(row.operator))
                   row.operator = 'eq';
               } else if (wasBool) {
-                row.value = '';
+                row.value = isArrayOperator(row.operator) ? [] : '';
                 row.valueText = '';
               }
               emitChange();
@@ -38,7 +38,11 @@
           <FpSelect :model-value="row.operator" :options="row.field === 'isDirect' ? boolOperatorOptions : operatorOptions
             " class="sel-op" @update:model-value="
               (v: string) => {
+                const wasArray = isArrayOperator(row.operator);
+                const willBeArray = isArrayOperator(v);
                 row.operator = v;
+                if (willBeArray && !wasArray) { row.value = []; row.valueText = ''; }
+                else if (!willBeArray && wasArray) { row.value = ''; row.valueText = ''; }
                 emitChange();
               }
             " />
@@ -55,6 +59,13 @@
               row.value === true ? "是（true）" : "否（false）"
               }}</span>
           </label>
+          <!-- 数组操作符：Tag 输入 -->
+          <TagInput
+            v-else-if="row.field !== 'isDirect' && row.operator !== 'exists' && isArrayOperator(row.operator)"
+            :model-value="Array.isArray(row.value) ? (row.value as string[]) : []"
+            :placeholder="getValuePlaceholder(row.operator)"
+            @update:model-value="(v: string[]) => { row.value = v; emitChange(); }"
+          />
           <!-- 普通文本输入 -->
           <input v-else-if="row.field !== 'isDirect' && row.operator !== 'exists'" class="input val-input"
             v-model="row.valueText" @input="
@@ -90,6 +101,7 @@
 <script lang="ts" setup>
 import { computed, ref, watch } from "vue";
 import FpSelect from "./fp-select.vue";
+import TagInput from "./tag-input.vue";
 
 defineOptions({ name: "ExprEditor" });
 
@@ -97,7 +109,10 @@ type GroupOperator = "and" | "or";
 type CompareOperator =
   | "eq"
   | "ne"
+  | "in"
+  | "nin"
   | "includes"
+  | "notincludes"
   | "regex"
   | "gt"
   | "gte"
@@ -146,7 +161,10 @@ const fieldSelectOptions = [
 const operatorOptions = [
   { value: "eq", label: "等于" },
   { value: "ne", label: "不等于" },
-  { value: "includes", label: "包含" },
+  { value: "in", label: "等于以下各项" },
+  { value: "nin", label: "不等于以下各项" },
+  { value: "includes", label: "包含以下各项" },
+  { value: "notincludes", label: "不包含以下各项" },
   { value: "regex", label: "正则匹配" },
   { value: "gt", label: "大于" },
   { value: "gte", label: "大于等于" },
@@ -164,7 +182,10 @@ const boolOperatorOptions = [
 const opSymbols: Record<string, string> = {
   eq: "eq",
   ne: "ne",
+  in: "in",
+  nin: "nin",
   includes: "contains",
+  notincludes: "not-contains",
   regex: "matches",
   gt: "gt",
   gte: "gte",
@@ -216,15 +237,24 @@ function rowFromCompare(
 ): FlatRow {
   const known = fieldOptions.some((f) => f.value === c.field);
   const field = known ? c.field : "__custom__";
-  // isDirect 默认为 false（boolean），其他默认空字符串
-  const defaultVal = field === "isDirect" ? false : "";
-  const rawVal = c.value ?? defaultVal;
+  const isArr = isArrayOperator(c.operator);
+  // isDirect 默认为 false（boolean），数组操作符默认 []，其他默认空字符串
+  const defaultVal = field === "isDirect" ? false : isArr ? [] : "";
+  let rawVal: unknown = c.value ?? defaultVal;
+  // 数组操作符：兼容旧格式（逗号分隔字符串）
+  if (isArr) {
+    if (typeof rawVal === "string") {
+      rawVal = rawVal ? rawVal.split(/[,，]/).map((v) => v.trim()).filter(Boolean) : [];
+    } else if (!Array.isArray(rawVal)) {
+      rawVal = [];
+    }
+  }
   return {
     id: newId(),
     field,
     customField: known ? "" : c.field,
     operator: c.operator,
-    valueText: rawVal === undefined || rawVal === null ? "" : String(rawVal),
+    valueText: Array.isArray(rawVal) ? "" : (rawVal === undefined || rawVal === null ? "" : String(rawVal)),
     value: rawVal,
     connector,
   };
@@ -319,7 +349,14 @@ function fromFlat(flatRows: FlatRow[]): RuleExpr {
 function buildPreview(expr: RuleExpr): string {
   if (expr.type === "compare") {
     const sym = opSymbols[expr.operator] || expr.operator;
-    const val = expr.value === undefined ? "" : JSON.stringify(expr.value);
+    let val: string;
+    if (expr.value === undefined) {
+      val = "";
+    } else if (Array.isArray(expr.value)) {
+      val = `{${(expr.value as string[]).map((v) => JSON.stringify(v)).join(" ")}}`;
+    } else {
+      val = JSON.stringify(expr.value);
+    }
     return `(${expr.field} ${sym} ${val})`;
   }
   if (expr.type === "group") {
@@ -375,12 +412,13 @@ function parseValue(text: string): unknown {
 }
 
 // 获取输入框占位符提示
+function isArrayOperator(op: string): boolean {
+  return ["in", "nin", "includes", "notincludes"].includes(op);
+}
+
 function getValuePlaceholder(operator: string): string {
-  if (operator === 'eq' || operator === 'ne') {
-    return '比较值（支持逗号分割多值，如：A,B,C）'
-  }
-  if (operator === 'includes') {
-    return '包含值（支持逗号分割多值）'
+  if (isArrayOperator(operator)) {
+    return '输入后按 Enter 添加'
   }
   return '比较值'
 }

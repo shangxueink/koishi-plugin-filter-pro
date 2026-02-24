@@ -12,7 +12,10 @@ export type GroupOperator = 'and' | 'or'
 export type CompareOperator =
   | 'eq'
   | 'ne'
+  | 'in'
+  | 'nin'
   | 'includes'
+  | 'notincludes'
   | 'regex'
   | 'gt'
   | 'gte'
@@ -197,7 +200,10 @@ function normalizeExpr(input: unknown): RuleExpr {
   const allowed: CompareOperator[] = [
     'eq',
     'ne',
+    'in',
+    'nin',
     'includes',
+    'notincludes',
     'regex',
     'gt',
     'gte',
@@ -226,7 +232,9 @@ function normalizeRule(input: RuleInput): RuleItem {
   } else if (rawTarget.type === 'plugin' || rawTarget.type === 'command') {
     // 支持数组或单个字符串
     if (Array.isArray(rawTarget.value)) {
-      normalizedValue = rawTarget.value.filter(v => typeof v === 'string' && v.trim()).map(v => v.trim())
+      normalizedValue = rawTarget.value
+        .filter((v) => typeof v === 'string' && v.trim())
+        .map((v) => v.trim())
     } else if (typeof rawTarget.value === 'string') {
       normalizedValue = rawTarget.value.trim() ? [rawTarget.value.trim()] : []
     } else {
@@ -235,7 +243,12 @@ function normalizeRule(input: RuleInput): RuleItem {
   }
 
   const target: RuleTarget = {
-    type: rawTarget.type === 'command' ? 'command' : rawTarget.type === 'plugin' ? 'plugin' : 'global',
+    type:
+      rawTarget.type === 'command'
+        ? 'command'
+        : rawTarget.type === 'plugin'
+          ? 'plugin'
+          : 'global',
     value: normalizedValue
   }
 
@@ -271,7 +284,8 @@ function matchTarget(
 
   // 指令目标匹配
   if (target.type === 'command') {
-    const commandName = typeof vars.commandName === 'string' ? vars.commandName : ''
+    const commandName =
+      typeof vars.commandName === 'string' ? vars.commandName : ''
     if (!commandName) return false
 
     if (Array.isArray(target.value)) {
@@ -471,11 +485,15 @@ function normalizeScalar(value: unknown): unknown {
   return String(value)
 }
 
-// 解析逗号分割的多值（支持全角、半角逗号）
+// 解析多值：优先处理数组（新格式），兼容逗号分割字符串（旧格式）
 function parseMultiValue(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value
   if (typeof value !== 'string') return [value]
-  // 使用全角、半角逗号分割
-  const parts = value.split(/[,，]/).map(v => v.trim()).filter(v => v)
+  // 兼容旧格式：全角、半角逗号分割
+  const parts = value
+    .split(/[,，]/)
+    .map((v) => v.trim())
+    .filter((v) => v)
   return parts.length > 1 ? parts : [value]
 }
 
@@ -485,27 +503,55 @@ function evaluateCompare(left: unknown, expr: CompareExpr): boolean {
   }
   const right = expr.value
   const leftNorm = normalizeScalar(left)
-
-  // 处理数组表达式：支持逗号分割的多值比较
-  const rightValues = parseMultiValue(right)
+  const rightNorm = normalizeScalar(right)
 
   if (expr.operator === 'eq') {
-    // 等于：左值等于右值数组中的任意一个
-    return rightValues.some(rv => leftNorm === normalizeScalar(rv))
+    return leftNorm === rightNorm
   }
   if (expr.operator === 'ne') {
-    // 不等于：左值不等于右值数组中的所有值
-    return rightValues.every(rv => leftNorm !== normalizeScalar(rv))
+    return leftNorm !== rightNorm
+  }
+
+  // 以下操作符支持逗号分割的多值右侧
+  const rightValues = parseMultiValue(right)
+
+  if (expr.operator === 'in') {
+    // 等于右值数组中的任意一个
+    return rightValues.some((rv) => leftNorm === normalizeScalar(rv))
+  }
+  if (expr.operator === 'nin') {
+    // 不等于右值数组中的任意一个
+    return rightValues.every((rv) => leftNorm !== normalizeScalar(rv))
   }
   if (expr.operator === 'includes') {
     if (typeof leftNorm === 'string') {
       // 包含：左值包含右值数组中的任意一个
-      return rightValues.some(rv => leftNorm.includes(String(normalizeScalar(rv) ?? '')))
+      return rightValues.some((rv) =>
+        leftNorm.includes(String(normalizeScalar(rv) ?? ''))
+      )
     }
     if (Array.isArray(left)) {
       const leftNormArray = left.map((item) => normalizeScalar(item))
       // 数组包含：左数组包含右值数组中的任意一个
-      return rightValues.some(rv => leftNormArray.includes(normalizeScalar(rv)))
+      return rightValues.some((rv) =>
+        leftNormArray.includes(normalizeScalar(rv))
+      )
+    }
+    return false
+  }
+  if (expr.operator === 'notincludes') {
+    if (typeof leftNorm === 'string') {
+      // 不包含：左值不包含右值数组中的任意一个
+      return rightValues.every(
+        (rv) => !leftNorm.includes(String(normalizeScalar(rv) ?? ''))
+      )
+    }
+    if (Array.isArray(left)) {
+      const leftNormArray = left.map((item) => normalizeScalar(item))
+      // 数组不包含：左数组不包含右值数组中的任意一个
+      return rightValues.every(
+        (rv) => !leftNormArray.includes(normalizeScalar(rv))
+      )
     }
     return false
   }
@@ -513,16 +559,18 @@ function evaluateCompare(left: unknown, expr: CompareExpr): boolean {
     if (typeof leftNorm !== 'string') return false
     try {
       // 正则匹配：使用第一个值作为正则表达式
-      return new RegExp(String(normalizeScalar(rightValues[0]) ?? '')).test(leftNorm)
+      return new RegExp(String(normalizeScalar(rightValues[0]) ?? '')).test(
+        leftNorm
+      )
     } catch {
       return false
     }
   }
 
   // 数值比较：使用第一个值
-  const rightNorm = normalizeScalar(rightValues[0])
+  const numRightNorm = normalizeScalar(rightValues[0])
   const ln = coerceNumber(left)
-  const rn = coerceNumber(rightNorm)
+  const rn = coerceNumber(numRightNorm)
   if (ln === null || rn === null) return false
   if (expr.operator === 'gt') return ln > rn
   if (expr.operator === 'gte') return ln >= rn
@@ -693,10 +741,11 @@ export function apply(ctx: Context, config: Config = {}) {
 
     // 收集所有启用的插件规则的插件键
     for (const rule of state.rules) {
-      if (!rule.enabled || rule.target.type !== 'plugin' || !rule.target.value) continue
+      if (!rule.enabled || rule.target.type !== 'plugin' || !rule.target.value)
+        continue
 
       if (Array.isArray(rule.target.value)) {
-        rule.target.value.forEach(key => activeKeys.add(key))
+        for (const key of rule.target.value) activeKeys.add(key)
       } else if (typeof rule.target.value === 'string') {
         const trimmed = rule.target.value.trim()
         if (trimmed) activeKeys.add(trimmed)
