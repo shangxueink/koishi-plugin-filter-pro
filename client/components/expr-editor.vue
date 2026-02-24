@@ -62,7 +62,7 @@
                 row.value = parseValue(row.valueText);
                 emitChange();
               }
-            " placeholder="比较值" />
+            " :placeholder="getValuePlaceholder(row.operator)" />
           <div class="row-btns">
             <k-button @click="insertRowAfter(i, 'and')">且（AND）</k-button>
             <k-button v-if="i === rows.length - 1" @click="insertRowAfter(i, 'or')">或（OR）</k-button>
@@ -372,6 +372,17 @@ function parseValue(text: string): unknown {
   const n = Number(t);
   if (Number.isFinite(n)) return n;
   return text;
+}
+
+// 获取输入框占位符提示
+function getValuePlaceholder(operator: string): string {
+  if (operator === 'eq' || operator === 'ne') {
+    return '比较值（支持逗号分割多值，如：A,B,C）'
+  }
+  if (operator === 'includes') {
+    return '包含值（支持逗号分割多值）'
+  }
+  return '比较值'
 }
 </script>
 
